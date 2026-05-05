@@ -1,3 +1,5 @@
+import type { ChatState } from "@/components/chat-panel";
+
 export type UICitation = {
   index: number;
   chunkId: string;
@@ -17,3 +19,5 @@ export type ChunkDetailResponse = {
   metadata: Record<string, unknown>;
   createdAt: string;
 };
+
+export type { ChatState };

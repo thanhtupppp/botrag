@@ -7,7 +7,7 @@ import { ChatEmptyState } from "@/components/chat-empty-state";
 import { ChatMessageSkeleton } from "@/components/chat-message-skeleton";
 import { ChunkPreviewSheet } from "@/components/chunk-preview-sheet";
 
-type ChatState = "idle" | "thinking" | "streaming" | "error";
+export type ChatState = "idle" | "thinking" | "streaming" | "error";
 
 export function ChatPanel() {
   const [question, setQuestion] = useState("");
