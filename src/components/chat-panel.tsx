@@ -9,7 +9,15 @@ import { ChunkPreviewSheet } from "@/components/chunk-preview-sheet";
 
 export type ChatState = "idle" | "thinking" | "streaming" | "error";
 
-export function ChatPanel() {
+type ChatPanelProps = {
+  onStateChange?: (state: ChatState) => void;
+  onActiveCitationsChange?: (count: number) => void;
+};
+
+export function ChatPanel({
+  onStateChange,
+  onActiveCitationsChange,
+}: ChatPanelProps) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
@@ -46,6 +54,7 @@ export function ChatPanel() {
     }
 
     setActiveCitation(index);
+    onActiveCitationsChange?.(1);
 
     try {
       const data = await loadChunkDetail(citation.chunkId);
@@ -59,10 +68,12 @@ export function ChatPanel() {
   async function sendQuestion() {
     setLoading(true);
     setState("thinking");
+    onStateChange?.("thinking");
     setAnswer("");
     setCitations([]);
     setSelectedChunk(null);
     setActiveCitation(null);
+    onActiveCitationsChange?.(0);
     setSheetOpen(false);
 
     try {
@@ -83,6 +94,7 @@ export function ChatPanel() {
       }
 
       setState("streaming");
+      onStateChange?.("streaming");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let text = "";
@@ -97,8 +109,10 @@ export function ChatPanel() {
       }
 
       setState("idle");
+      onStateChange?.("idle");
     } catch (error) {
       setState("error");
+      onStateChange?.("error");
       setAnswer(error instanceof Error ? error.message : "Unknown error");
     } finally {
       setLoading(false);
