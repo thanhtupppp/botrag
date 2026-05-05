@@ -5,8 +5,9 @@ config({ path: ".env.local" });
 import { createClient } from "@supabase/supabase-js";
 
 const TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001";
-const GEMINI_MODEL = "embedding-001";
+const GEMINI_MODEL = "gemini-embedding-001";
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
+const OUTPUT_DIM = 768;
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -22,13 +23,16 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       requests: texts.map((text) => ({
-        model: `models/${GEMINI_MODEL}`,
-        content: { parts: [{ text }] },
+        model: GEMINI_MODEL,
         taskType: "RETRIEVAL_DOCUMENT",
+        output_dimensionality: OUTPUT_DIM,
+        content: { parts: [{ text }] },
       })),
     }),
   });
+
   if (!res.ok) throw new Error(`Embed batch error ${res.status}: ${await res.text()}`);
+
   const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
   return data.embeddings.map((e) => e.values);
 }
@@ -36,13 +40,16 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
 function chunkText(text: string, size = 800, overlap = 120) {
   const chunks: { content: string; index: number }[] = [];
   const norm = text.replace(/\r\n/g, "\n").trim();
-  let start = 0, i = 0;
+  let start = 0,
+    i = 0;
+
   while (start < norm.length) {
     const end = Math.min(start + size, norm.length);
     chunks.push({ content: norm.slice(start, end), index: i++ });
     if (end === norm.length) break;
     start = Math.max(end - overlap, start + 1);
   }
+
   return chunks;
 }
 
@@ -63,7 +70,7 @@ Bước 1: Clone repository. Bước 2: npm install. Bước 3: Cấu hình .env
 
 async function main() {
   console.log("=== TEST: Upload / Ingestion Pipeline ===");
-  console.log(`    Model: ${GEMINI_MODEL}`);
+  console.log(`    Model: ${GEMINI_MODEL}, dim: ${OUTPUT_DIM}`);
 
   const supabase = getServiceClient();
   let documentId: string | null = null;
@@ -72,9 +79,18 @@ async function main() {
     console.log("\n[1] Inserting document...");
     const { data: doc, error: docErr } = await supabase
       .from("documents")
-      .insert({ owner_id: TEST_OWNER_ID, title: "[TEST] Pipeline Doc", source_name: "test.md", mime_type: "text/markdown", status: "processing" })
-      .select("id").single();
+      .insert({
+        owner_id: TEST_OWNER_ID,
+        title: "[TEST] Pipeline Doc",
+        source_name: "test.md",
+        mime_type: "text/markdown",
+        status: "processing",
+      })
+      .select("id")
+      .single();
+
     if (docErr || !doc) throw new Error(`Insert doc: ${docErr?.message}`);
+
     documentId = doc.id as string;
     console.log(`  ✅ Document: ${documentId}`);
 
@@ -84,8 +100,12 @@ async function main() {
 
     console.log("\n[3] Embedding...");
     const embeddings = await embedBatch(chunks.map((c) => c.content));
-    const dim = embeddings[0].length;
+    const dim = embeddings[0]?.length ?? 0;
+
     console.log(`  ✅ ${embeddings.length} embeddings, dimension: ${dim}`);
+    if (dim !== OUTPUT_DIM) {
+      console.warn(`  ⚠️  Dimension mismatch: ${dim} vs ${OUTPUT_DIM}`);
+    }
 
     console.log("\n[4] Upserting chunks...");
     const { error: insertErr } = await supabase.from("document_chunks").insert(
@@ -96,9 +116,11 @@ async function main() {
         content: c.content,
         metadata: { source: "test.md" },
         embedding: JSON.stringify(embeddings[i]),
-      }))
+      })),
     );
+
     if (insertErr) throw new Error(`Insert chunks: ${insertErr.message}`);
+
     console.log(`  ✅ ${chunks.length} chunks inserted`);
 
     await supabase.from("documents").update({ status: "ready" }).eq("id", documentId);
@@ -110,12 +132,20 @@ async function main() {
       match_count: 3,
       filter_owner_id: TEST_OWNER_ID,
     });
+
     if (rpcErr) throw new Error(`match_chunks: ${rpcErr.message}`);
+
     const results = matched as Array<{ similarity: number; content: string }>;
+
     if (results.length === 0) throw new Error("match_chunks returned 0 results");
+
     console.log(`  ✅ match_chunks: ${results.length} results`);
     results.forEach((r, i) =>
-      console.log(`     [${i+1}] score=${r.similarity.toFixed(4)} | ${r.content.slice(0, 60).replace(/\n/g, " ")}...`)
+      console.log(
+        `     [${i + 1}] score=${r.similarity.toFixed(4)} | ${r.content
+          .slice(0, 60)
+          .replace(/\n/g, " ")}...`,
+      ),
     );
 
     console.log("\n✅ All ingestion tests passed!\n");
