@@ -35,10 +35,19 @@ export function ChatPanel() {
     return (await res.json()) as ChunkDetailResponse;
   }
 
-  async function openCitation(citation: UICitation) {
-    const data = await loadChunkDetail(citation.chunkId);
-    setSelectedChunk(data);
-    setSheetOpen(true);
+  async function handleOpenCitation(index: number) {
+    const citation = citations.find((c) => c.index === index);
+    if (!citation) return;
+
+    setActiveCitation(index);
+
+    try {
+      const data = await loadChunkDetail(citation.chunkId);
+      setSelectedChunk(data);
+      setSheetOpen(true);
+    } catch (error) {
+      console.warn("[citation] fetch chunk failed", error);
+    }
   }
 
   async function sendQuestion() {
@@ -131,6 +140,7 @@ export function ChatPanel() {
               text={answer}
               citations={citations}
               onCitationHover={setActiveCitation}
+              onCitationClick={handleOpenCitation}
             />
           ) : (
             <ChatEmptyState onSuggest={(q) => setQuestion(q)} />
@@ -151,7 +161,7 @@ export function ChatPanel() {
                 onMouseEnter={() => setActiveCitation(c.index)}
                 onMouseLeave={() => setActiveCitation(null)}
                 onClick={async () => {
-                  await openCitation(c);
+                  await handleOpenCitation(c.index);
                 }}
                 className={`block w-full rounded-2xl border p-4 text-left transition ${
                   activeCitation === c.index

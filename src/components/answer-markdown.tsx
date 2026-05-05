@@ -8,6 +8,7 @@ type Props = {
   text: string;
   citations: UICitation[];
   onCitationHover?: (index: number | null) => void;
+  onCitationClick?: (index: number) => void;
 };
 
 function tokenizeWithCitations(raw: string) {
@@ -33,7 +34,12 @@ function tokenizeWithCitations(raw: string) {
   return parts;
 }
 
-export function AnswerMarkdown({ text, citations, onCitationHover }: Props) {
+export function AnswerMarkdown({
+  text,
+  citations,
+  onCitationHover,
+  onCitationClick,
+}: Props) {
   const parts = tokenizeWithCitations(text);
 
   return (
@@ -65,6 +71,7 @@ export function AnswerMarkdown({ text, citations, onCitationHover }: Props) {
             type="button"
             onMouseEnter={() => onCitationHover?.(citation.index)}
             onMouseLeave={() => onCitationHover?.(null)}
+            onClick={() => onCitationClick?.(citation.index)}
             className="mx-0.5 inline-flex items-center rounded-full border border-violet-400/30 bg-violet-500/10 px-1.5 text-[11px] font-medium text-violet-200 transition hover:bg-violet-500/20"
           >
             #{citation.index}
