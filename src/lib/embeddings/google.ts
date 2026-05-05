@@ -1,61 +1,58 @@
-import type { EmbeddingProvider } from "./provider";
+/**
+ * Gemini Embedding 1 = embedding-001
+ * Dimension: 768
+ * API: v1beta embedContent / batchEmbedContents
+ */
+const MODEL = "embedding-001";
+const BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}`;
 
-const GEMINI_EMBEDDING_MODEL = "text-embedding-004";
-const EMBEDDING_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_EMBEDDING_MODEL}:embedContent`;
-const BATCH_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_EMBEDDING_MODEL}:batchEmbedContents`;
-
-function getApiKey(): string {
+function apiKey(): string {
   const key = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!key) throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set");
   return key;
 }
 
-export const googleEmbeddingProvider: EmbeddingProvider = {
-  async embed(text: string): Promise<number[]> {
-    const apiKey = getApiKey();
-    const res = await fetch(`${EMBEDDING_API_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: `models/${GEMINI_EMBEDDING_MODEL}`,
-        content: { parts: [{ text }] },
-        taskType: "RETRIEVAL_DOCUMENT",
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Gemini embed error ${res.status}: ${err}`);
-    }
-
-    const data = (await res.json()) as { embedding: { values: number[] } };
-    return data.embedding.values;
-  },
-
-  async embedBatch(texts: string[]): Promise<number[][]> {
-    if (texts.length === 0) return [];
-    const apiKey = getApiKey();
-
-    const requests = texts.map((text) => ({
-      model: `models/${GEMINI_EMBEDDING_MODEL}`,
+/** Embed một củi văn bản. taskType: RETRIEVAL_DOCUMENT (index) | RETRIEVAL_QUERY (search) */
+export async function embed(
+  text: string,
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY" = "RETRIEVAL_DOCUMENT"
+): Promise<number[]> {
+  const res = await fetch(`${BASE}:embedContent?key=${apiKey()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: `models/${MODEL}`,
       content: { parts: [{ text }] },
-      taskType: "RETRIEVAL_DOCUMENT",
-    }));
+      taskType,
+    }),
+  });
+  if (!res.ok) throw new Error(`embed() failed ${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as { embedding: { values: number[] } };
+  return data.embedding.values;
+}
 
-    const res = await fetch(`${BATCH_API_URL}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requests }),
-    });
+/** Embed nhiều văn bản cùng lúc. Dùng cho ingestion pipeline. */
+export async function embedBatch(
+  texts: string[],
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY" = "RETRIEVAL_DOCUMENT"
+): Promise<number[][]> {
+  if (texts.length === 0) return [];
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Gemini batchEmbed error ${res.status}: ${err}`);
-    }
+  const res = await fetch(`${BASE}:batchEmbedContents?key=${apiKey()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requests: texts.map((text) => ({
+        model: `models/${MODEL}`,
+        content: { parts: [{ text }] },
+        taskType,
+      })),
+    }),
+  });
+  if (!res.ok) throw new Error(`embedBatch() failed ${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
+  return data.embeddings.map((e) => e.values);
+}
 
-    const data = (await res.json()) as {
-      embeddings: Array<{ values: number[] }>;
-    };
-    return data.embeddings.map((e) => e.values);
-  },
-};
+export const EMBEDDING_MODEL = MODEL;
+export const EMBEDDING_DIM = 768;

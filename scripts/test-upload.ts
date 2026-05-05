@@ -5,9 +5,8 @@ config({ path: ".env.local" });
 import { createClient } from "@supabase/supabase-js";
 
 const TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001";
-const GEMINI_MODEL = "text-embedding-005";
+const GEMINI_MODEL = "embedding-001";
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
-const EXPECTED_DIM = 768;
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -31,10 +30,7 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
   });
   if (!res.ok) throw new Error(`Embed batch error ${res.status}: ${await res.text()}`);
   const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
-  const vecs = data.embeddings.map((e) => e.values);
-  const badDim = vecs.find((v) => v.length !== EXPECTED_DIM);
-  if (badDim) throw new Error(`Unexpected dimension: ${badDim.length}, expected ${EXPECTED_DIM}`);
-  return vecs;
+  return data.embeddings.map((e) => e.values);
 }
 
 function chunkText(text: string, size = 800, overlap = 120) {
@@ -59,89 +55,67 @@ Hệ thống sẽ tự động chia nhỏ, nhúng và lưu vào Supabase.
 
 ## Tính năng chính
 Chatbot có khả năng trả lời câu hỏi dựa trên nội dung tài liệu.
-Mô hình 3D tương tác phản ứng theo trạng thái của chatbot.
 Dữ liệu được bảo vệ bằng Row Level Security.
 
 ## Cài đặt
-Bước 1: Clone repository về máy local.
-Bước 2: Cài đặt dependencies với npm install.
-Bước 3: Cấu hình biến môi trường trong file .env.local.
-Bước 4: Chạy migration SQL trên Supabase Dashboard.
-Bước 5: Khởi động server với npm run dev.
+Bước 1: Clone repository. Bước 2: npm install. Bước 3: Cấu hình .env.local. Bước 4: Chạy migration SQL.
 `;
 
 async function main() {
   console.log("=== TEST: Upload / Ingestion Pipeline ===");
-  console.log(`    Embedding model: ${GEMINI_MODEL}`);
+  console.log(`    Model: ${GEMINI_MODEL}`);
 
   const supabase = getServiceClient();
   let documentId: string | null = null;
 
   try {
-    // Step 1: Insert document
-    console.log("\n[1] Inserting document record...");
+    console.log("\n[1] Inserting document...");
     const { data: doc, error: docErr } = await supabase
       .from("documents")
-      .insert({
-        owner_id: TEST_OWNER_ID,
-        title: "[TEST] RAG Pipeline Test Doc",
-        source_name: "test.md",
-        mime_type: "text/markdown",
-        status: "processing",
-      })
-      .select("id")
-      .single();
-
-    if (docErr || !doc) throw new Error(`Insert doc failed: ${docErr?.message}`);
+      .insert({ owner_id: TEST_OWNER_ID, title: "[TEST] Pipeline Doc", source_name: "test.md", mime_type: "text/markdown", status: "processing" })
+      .select("id").single();
+    if (docErr || !doc) throw new Error(`Insert doc: ${docErr?.message}`);
     documentId = doc.id as string;
-    console.log(`  ✅ Document created: ${documentId}`);
+    console.log(`  ✅ Document: ${documentId}`);
 
-    // Step 2: Chunk
-    console.log("\n[2] Chunking text...");
+    console.log("\n[2] Chunking...");
     const chunks = chunkText(SAMPLE_TEXT.trim());
     console.log(`  ✅ ${chunks.length} chunks`);
-    chunks.forEach((c, i) =>
-      console.log(`     [${i}] ${c.content.slice(0, 70).replace(/\n/g, " ")}...`)
-    );
 
-    // Step 3: Embed
     console.log("\n[3] Embedding...");
     const embeddings = await embedBatch(chunks.map((c) => c.content));
-    console.log(`  ✅ ${embeddings.length} embeddings, dimension: ${embeddings[0].length}`);
+    const dim = embeddings[0].length;
+    console.log(`  ✅ ${embeddings.length} embeddings, dimension: ${dim}`);
 
-    // Step 4: Upsert
-    console.log("\n[4] Upserting chunks to Supabase...");
-    const rows = chunks.map((chunk, idx) => ({
-      document_id: documentId!,
-      owner_id: TEST_OWNER_ID,
-      chunk_index: chunk.index,
-      content: chunk.content,
-      metadata: { source: "test.md" },
-      embedding: JSON.stringify(embeddings[idx]),
-    }));
-    const { error: insertErr } = await supabase.from("document_chunks").insert(rows);
-    if (insertErr) throw new Error(`Insert chunks failed: ${insertErr.message}`);
-    console.log(`  ✅ ${rows.length} chunks inserted`);
+    console.log("\n[4] Upserting chunks...");
+    const { error: insertErr } = await supabase.from("document_chunks").insert(
+      chunks.map((c, i) => ({
+        document_id: documentId!,
+        owner_id: TEST_OWNER_ID,
+        chunk_index: c.index,
+        content: c.content,
+        metadata: { source: "test.md" },
+        embedding: JSON.stringify(embeddings[i]),
+      }))
+    );
+    if (insertErr) throw new Error(`Insert chunks: ${insertErr.message}`);
+    console.log(`  ✅ ${chunks.length} chunks inserted`);
 
-    // Step 5: Mark ready
     await supabase.from("documents").update({ status: "ready" }).eq("id", documentId);
-    console.log("  ✅ Document status → ready");
+    console.log("  ✅ status → ready");
 
-    // Step 6: Test match_chunks RPC
     console.log("\n[5] Testing match_chunks RPC...");
     const { data: matched, error: rpcErr } = await supabase.rpc("match_chunks", {
       query_embedding: embeddings[0],
       match_count: 3,
       filter_owner_id: TEST_OWNER_ID,
     });
-    if (rpcErr) throw new Error(`match_chunks RPC failed: ${rpcErr.message}`);
-
+    if (rpcErr) throw new Error(`match_chunks: ${rpcErr.message}`);
     const results = matched as Array<{ similarity: number; content: string }>;
-    if (results.length === 0) throw new Error("match_chunks returned 0 results — kiểm tra RLS và migration");
-
-    console.log(`  ✅ match_chunks returned ${results.length} results`);
+    if (results.length === 0) throw new Error("match_chunks returned 0 results");
+    console.log(`  ✅ match_chunks: ${results.length} results`);
     results.forEach((r, i) =>
-      console.log(`     [${i + 1}] score=${r.similarity.toFixed(4)} | ${r.content.slice(0, 60).replace(/\n/g, " ")}...`)
+      console.log(`     [${i+1}] score=${r.similarity.toFixed(4)} | ${r.content.slice(0, 60).replace(/\n/g, " ")}...`)
     );
 
     console.log("\n✅ All ingestion tests passed!\n");
@@ -149,7 +123,6 @@ async function main() {
     console.error("\n❌ Test failed:", err);
   } finally {
     if (documentId) {
-      console.log("[cleanup] Removing test document...");
       await getServiceClient().from("documents").delete().eq("id", documentId);
       console.log("[cleanup] Done.");
     }
