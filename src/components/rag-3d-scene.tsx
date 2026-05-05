@@ -41,43 +41,43 @@ const GOAL: Record<ChatState, GoalParams> = {
     lerpSpeed: 2.5,
   },
   thinking: {
-    spin: 1.1,
-    pulseAmp: 0.07,
-    pulseFreq: 5,
-    jitter: 0.008,
-    jitterFreq: 13,
+    spin: 1.18,
+    pulseAmp: 0.075,
+    pulseFreq: 5.4,
+    jitter: 0.01,
+    jitterFreq: 15,
     emissiveR: 0.31,
     emissiveG: 0.76,
     emissiveB: 0.97,
-    emissiveIntensity: 1.6,
-    lightIntensity: 2.2,
-    lerpSpeed: 5,
+    emissiveIntensity: 1.75,
+    lightIntensity: 2.4,
+    lerpSpeed: 6,
   },
   streaming: {
-    spin: 0.45,
-    pulseAmp: 0.038,
-    pulseFreq: 3.2,
-    jitter: 0,
-    jitterFreq: 0,
+    spin: 0.52,
+    pulseAmp: 0.042,
+    pulseFreq: 3.05,
+    jitter: 0.002,
+    jitterFreq: 9,
     emissiveR: 0.51,
     emissiveG: 0.78,
     emissiveB: 0.52,
-    emissiveIntensity: 1.1,
-    lightIntensity: 1.6,
-    lerpSpeed: 3.5,
+    emissiveIntensity: 1.15,
+    lightIntensity: 1.75,
+    lerpSpeed: 3.8,
   },
   error: {
-    spin: 0.25,
-    pulseAmp: 0.012,
-    pulseFreq: 2.2,
-    jitter: 0.015,
-    jitterFreq: 18,
+    spin: 0.2,
+    pulseAmp: 0.015,
+    pulseFreq: 2.8,
+    jitter: 0.018,
+    jitterFreq: 21,
     emissiveR: 0.94,
     emissiveG: 0.33,
     emissiveB: 0.31,
-    emissiveIntensity: 1.3,
-    lightIntensity: 1.8,
-    lerpSpeed: 4,
+    emissiveIntensity: 1.45,
+    lightIntensity: 2,
+    lerpSpeed: 4.5,
   },
 };
 
@@ -129,20 +129,20 @@ function SceneContent({ state, activeCitations = 0 }: Props) {
     const t = performance.now() / 1000;
 
     m.rotation.y += current.current.spin * delta;
-    m.rotation.x = Math.sin(t * 0.3) * 0.08;
+    m.rotation.x = Math.sin(t * 0.28) * 0.075;
+    m.rotation.z = Math.sin(t * 0.18) * 0.03;
 
-    const citationBump = activeCitations * 0.012;
-    m.scale.setScalar(
-      1 +
-        Math.sin(t * current.current.pulseFreq) *
-          (current.current.pulseAmp + citationBump),
-    );
+    const citationBump = activeCitations * 0.01;
+    const pulse =
+      Math.sin(t * current.current.pulseFreq) *
+      (current.current.pulseAmp + citationBump);
+    m.scale.setScalar(1 + pulse);
 
     if (current.current.jitter > 0.0005) {
-      m.position.x =
-        Math.sin(t * current.current.jitterFreq) * current.current.jitter;
-      m.position.y =
-        Math.cos(t * current.current.jitterFreq * 1.1) * current.current.jitter;
+      const jitterWave = Math.sin(t * current.current.jitterFreq);
+      const jitterWave2 = Math.cos(t * current.current.jitterFreq * 1.13);
+      m.position.x = jitterWave * current.current.jitter;
+      m.position.y = jitterWave2 * current.current.jitter * 0.85;
     } else {
       m.position.x += (0 - m.position.x) * 0.15;
       m.position.y += (0 - m.position.y) * 0.15;
@@ -167,15 +167,15 @@ function SceneContent({ state, activeCitations = 0 }: Props) {
 
   return (
     <>
-      <ambientLight intensity={0.25} />
+      <ambientLight intensity={0.22} />
       <pointLight ref={lightRef} position={[4, 4, 4]} />
-      <pointLight position={[-3, -2, -3]} intensity={0.4} color="#334155" />
+      <pointLight position={[-3, -2, -3]} intensity={0.5} color="#334155" />
       <mesh ref={meshRef}>
         <icosahedronGeometry args={[1, 2]} />
         <meshStandardMaterial
-          color="#0d1117"
-          metalness={0.6}
-          roughness={0.15}
+          color="#0b1220"
+          metalness={0.7}
+          roughness={0.12}
         />
       </mesh>
     </>
