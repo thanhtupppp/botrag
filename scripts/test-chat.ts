@@ -5,7 +5,7 @@ config({ path: ".env.local" });
 import { createClient } from "@supabase/supabase-js";
 
 const TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001";
-const GEMINI_MODEL = "embedding-001";
+const GEMINI_MODEL = "gemini-embedding-001";
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
 const SINGLE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:embedContent`;
 
@@ -13,7 +13,7 @@ function getServiceClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
+    { auth: { persistSession: false } },
   );
 }
 
@@ -47,7 +47,9 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
     }),
   });
   if (!res.ok) throw new Error(`Batch embed: ${await res.text()}`);
-  const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
+  const data = (await res.json()) as {
+    embeddings: Array<{ values: number[] }>;
+  };
   return data.embeddings.map((e) => e.values);
 }
 
@@ -62,10 +64,12 @@ async function generateAnswer(prompt: string): Promise<string> {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
       }),
-    }
+    },
   );
   if (!res.ok) throw new Error(`GenerateContent: ${await res.text()}`);
-  const data = (await res.json()) as { candidates: Array<{ content: { parts: Array<{ text: string }> } }> };
+  const data = (await res.json()) as {
+    candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
+  };
   return data.candidates[0].content.parts[0].text;
 }
 
@@ -97,25 +101,40 @@ async function main() {
 
   try {
     console.log("\n[1] Seeding test document...");
-    const chunks = KNOWLEDGE_TEXT.trim().split("\n\n").filter(Boolean)
+    const chunks = KNOWLEDGE_TEXT.trim()
+      .split("\n\n")
+      .filter(Boolean)
       .map((content, i) => ({ content: content.trim(), index: i }));
 
     const { data: doc, error: docErr } = await supabase
       .from("documents")
-      .insert({ owner_id: TEST_OWNER_ID, title: "[TEST] Hoàn tiền", source_name: "refund.md", mime_type: "text/markdown", status: "processing" })
-      .select("id").single();
+      .insert({
+        owner_id: TEST_OWNER_ID,
+        title: "[TEST] Hoàn tiền",
+        source_name: "refund.md",
+        mime_type: "text/markdown",
+        status: "processing",
+      })
+      .select("id")
+      .single();
     if (docErr || !doc) throw new Error(docErr?.message);
     documentId = doc.id as string;
 
     const embeddings = await embedBatch(chunks.map((c) => c.content));
     await supabase.from("document_chunks").insert(
       chunks.map((c, i) => ({
-        document_id: documentId!, owner_id: TEST_OWNER_ID,
-        chunk_index: c.index, content: c.content,
-        metadata: {}, embedding: JSON.stringify(embeddings[i]),
-      }))
+        document_id: documentId!,
+        owner_id: TEST_OWNER_ID,
+        chunk_index: c.index,
+        content: c.content,
+        metadata: {},
+        embedding: JSON.stringify(embeddings[i]),
+      })),
     );
-    await supabase.from("documents").update({ status: "ready" }).eq("id", documentId);
+    await supabase
+      .from("documents")
+      .update({ status: "ready" })
+      .eq("id", documentId);
     console.log(`  ✅ ${chunks.length} chunks seeded`);
 
     let passed = 0;
@@ -123,29 +142,40 @@ async function main() {
       console.log(`\n[Q] ${test.q}`);
       const qEmbed = await singleEmbed(test.q);
       const { data: matched, error } = await supabase.rpc("match_chunks", {
-        query_embedding: qEmbed, match_count: 3, filter_owner_id: TEST_OWNER_ID,
+        query_embedding: qEmbed,
+        match_count: 3,
+        filter_owner_id: TEST_OWNER_ID,
       });
       if (error) throw new Error(`RPC: ${error.message}`);
 
-      const results = (matched as Array<{ similarity: number; content: string }>)
-        .filter((r) => r.similarity >= 0.3);
+      const results = (
+        matched as Array<{ similarity: number; content: string }>
+      ).filter((r) => r.similarity >= 0.3);
 
       if (!test.expect) {
-        console.log(results.length === 0
-          ? "  ✅ Correctly 0 chunks (out-of-domain)"
-          : `  ⚠️  Got ${results.length} chunks for out-of-domain (threshold cần tăng)`
+        console.log(
+          results.length === 0
+            ? "  ✅ Correctly 0 chunks (out-of-domain)"
+            : `  ⚠️  Got ${results.length} chunks for out-of-domain (threshold cần tăng)`,
         );
         passed++;
         continue;
       }
 
-      if (results.length === 0) { console.error("  ❌ No chunks retrieved"); continue; }
+      if (results.length === 0) {
+        console.error("  ❌ No chunks retrieved");
+        continue;
+      }
 
-      const context = results.map((r, i) => `[#${i+1}] ${r.content}`).join("\n\n");
+      const context = results
+        .map((r, i) => `[#${i + 1}] ${r.content}`)
+        .join("\n\n");
       const answer = await generateAnswer(
-        `Bạn là trợ lý RAG. Chỉ trả lời dựa trên ngữ cảnh.\nCâu hỏi: ${test.q}\nNgữ cảnh:\n${context}`
+        `Bạn là trợ lý RAG. Chỉ trả lời dựa trên ngữ cảnh.\nCâu hỏi: ${test.q}\nNgữ cảnh:\n${context}`,
       );
-      console.log(`  score_top=${results[0].similarity.toFixed(4)} | ${answer.slice(0, 150).replace(/\n/g, " ")}`);
+      console.log(
+        `  score_top=${results[0].similarity.toFixed(4)} | ${answer.slice(0, 150).replace(/\n/g, " ")}`,
+      );
       passed++;
     }
 
