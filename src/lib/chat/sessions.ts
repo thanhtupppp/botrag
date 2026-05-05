@@ -81,7 +81,7 @@ export async function renameChatSession(
   sessionId: string,
   title: string,
 ) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data: session, error: sessionError } = await supabase
     .from("chat_sessions")
     .select("id")
