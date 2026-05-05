@@ -1,4 +1,7 @@
-import { createServiceClient } from "@/lib/supabase/server";
+import {
+  createServiceClient,
+  createSupabaseServerClient,
+} from "@/lib/supabase/server";
 
 export type ChatSessionRow = {
   id: string;
@@ -55,17 +58,45 @@ export async function getChatSession(ownerId: string, sessionId: string) {
   };
 }
 
+export async function createChatSession(
+  ownerId: string,
+  title: string | null = null,
+) {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("chat_sessions")
+    .insert({ owner_id: ownerId, title })
+    .select("id, owner_id, title, created_at")
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message ?? "Failed to create session");
+  }
+
+  return data as ChatSessionRow;
+}
+
 export async function renameChatSession(
   ownerId: string,
   sessionId: string,
   title: string,
 ) {
-  const supabase = createServiceClient();
+  const supabase = createSupabaseServerClient();
+  const { data: session, error: sessionError } = await supabase
+    .from("chat_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("owner_id", ownerId)
+    .single();
+
+  if (sessionError || !session) {
+    throw new Error(sessionError?.message ?? "Session not found");
+  }
+
   const { data, error } = await supabase
     .from("chat_sessions")
     .update({ title })
     .eq("id", sessionId)
-    .eq("owner_id", ownerId)
     .select("id, owner_id, title, created_at")
     .single();
 

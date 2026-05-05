@@ -10,7 +10,7 @@ import { retrieveTopKChunks } from "@/lib/rag/retrieve";
 import { buildRagPrompt } from "@/lib/rag/prompt";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/observability";
-import { listChatSessions } from "@/lib/chat/sessions";
+import { createChatSession } from "@/lib/chat/sessions";
 
 const RequestSchema = z.object({
   question: z.string().min(1).max(2000),
@@ -68,25 +68,34 @@ export async function POST(req: NextRequest) {
     }
     const { question, sessionId: providedSessionId } = parsed.data;
 
+    const sessionOwnerCheck = async (sessionId: string) => {
+      const { data: session, error } = await supabase
+        .from("chat_sessions")
+        .select("id, owner_id")
+        .eq("id", sessionId)
+        .eq("owner_id", user.id)
+        .single();
+
+      return { session, error };
+    };
+
     let sessionId = providedSessionId;
-    if (!sessionId) {
-      const { data: createdSession, error: createSessionError } =
-        await createServiceClient()
-          .from("chat_sessions")
-          .insert({
-            owner_id: user.id,
-            title: question.slice(0, 60),
-          })
-          .select("id")
-          .single();
-
-      if (createSessionError || !createdSession) {
-        throw new Error(
-          `Failed to create chat session: ${createSessionError?.message}`,
+    if (sessionId) {
+      const { session, error } = await sessionOwnerCheck(sessionId);
+      if (error || !session) {
+        logEvent(
+          "api.chat.invalid_session",
+          { route: "chat", userId: user.id, sessionId },
+          "warn",
         );
+        return NextResponse.json({ error: "Invalid session" }, { status: 400 });
       }
-
-      sessionId = createdSession.id as string;
+    } else {
+      const createdSession = await createChatSession(
+        user.id,
+        question.slice(0, 60),
+      );
+      sessionId = createdSession.id;
       logEvent("api.chat.session_created", {
         route: "chat",
         userId: user.id,
@@ -151,9 +160,7 @@ export async function POST(req: NextRequest) {
           { session_id: sessionId, role: "user", content: question },
           { session_id: sessionId, role: "assistant", content: text },
         ];
-        const { error } = await serviceClient
-          .from("chat_messages")
-          .insert(msgs);
+        const { error } = await supabase.from("chat_messages").insert(msgs);
         if (error) console.warn("[chat_messages] insert error:", error.message);
         logEvent("api.chat.finish", {
           route: "chat",

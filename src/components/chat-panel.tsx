@@ -184,7 +184,7 @@ export function ChatPanel({
 
         <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-white/50">Assistant</p>
+            <p className="text-sm text-white/50">Transcript</p>
             {loading ? (
               <span className="text-xs text-violet-300">streaming...</span>
             ) : null}
@@ -197,10 +197,16 @@ export function ChatPanel({
                   key={message.id}
                   className={
                     message.role === "user"
-                      ? "ml-auto max-w-[85%] rounded-2xl bg-violet-600/20 p-4 text-sm text-white"
+                      ? "ml-auto max-w-[85%] rounded-2xl border border-violet-400/20 bg-violet-600/15 p-4 text-sm text-white shadow-[0_0_0_1px_rgba(168,85,247,0.05)]"
                       : "max-w-[85%] rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/90"
                   }
                 >
+                  <div className="mb-2 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.24em] text-white/35">
+                    <span>{message.role === "user" ? "You" : "Assistant"}</span>
+                    <span>
+                      {new Date(message.createdAt).toLocaleTimeString()}
+                    </span>
+                  </div>
                   {message.role === "assistant" ? (
                     <AnswerMarkdown
                       text={message.content}
@@ -209,7 +215,9 @@ export function ChatPanel({
                       onCitationClick={handleOpenCitation}
                     />
                   ) : (
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    <p className="whitespace-pre-wrap leading-7">
+                      {message.content}
+                    </p>
                   )}
                 </div>
               ))}
@@ -217,12 +225,18 @@ export function ChatPanel({
           ) : state === "thinking" && !answer ? (
             <ChatMessageSkeleton />
           ) : answer || state === "error" ? (
-            <AnswerMarkdown
-              text={answer}
-              citations={citations}
-              onCitationHover={setActiveCitation}
-              onCitationClick={handleOpenCitation}
-            />
+            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="mb-2 flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.24em] text-white/35">
+                <span>Assistant</span>
+                <span>{new Date().toLocaleTimeString()}</span>
+              </div>
+              <AnswerMarkdown
+                text={answer}
+                citations={citations}
+                onCitationHover={setActiveCitation}
+                onCitationClick={handleOpenCitation}
+              />
+            </div>
           ) : (
             <ChatEmptyState onSuggest={(q) => setQuestion(q)} />
           )}

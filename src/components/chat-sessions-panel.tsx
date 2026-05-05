@@ -50,17 +50,17 @@ export function ChatSessionsPanel({
   }
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
+    <section className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm uppercase tracking-[0.3em] text-white/50">
+        <p className="text-[11px] uppercase tracking-[0.32em] text-white/45">
           Sessions
         </p>
-        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/45">
+        <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] text-white/45">
           {sessions.length}
         </span>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-3 space-y-2.5">
         {sessions.length ? (
           sessions.map((session) => {
             const isActive = activeSessionId === session.id;
@@ -69,14 +69,14 @@ export function ChatSessionsPanel({
             return (
               <div
                 key={session.id}
-                className={`rounded-2xl border p-4 transition ${
+                className={`rounded-2xl border px-3 py-3 transition ${
                   isActive
-                    ? "border-violet-400/40 bg-violet-500/10 shadow-[0_0_0_1px_rgba(168,85,247,0.15)]"
-                    : "border-white/10 bg-black/20 hover:border-violet-400/40 hover:bg-white/5"
+                    ? "border-violet-400/40 bg-violet-500/10 shadow-[0_0_0_1px_rgba(168,85,247,0.12)]"
+                    : "border-white/10 bg-black/20 hover:border-violet-400/35 hover:bg-white/5"
                 }`}
               >
                 {isEditing ? (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     <input
                       autoFocus
                       value={draftTitle}
@@ -98,7 +98,7 @@ export function ChatSessionsPanel({
                         type="button"
                         onClick={() => void submitRename(session.id)}
                         disabled={savingId === session.id}
-                        className="rounded-full bg-violet-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-full bg-violet-600 px-3 py-2 text-[11px] font-medium text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {savingId === session.id ? "Saving..." : "Save"}
                       </button>
@@ -108,39 +108,40 @@ export function ChatSessionsPanel({
                           setEditingId(null);
                           setDraftTitle("");
                         }}
-                        className="rounded-full border border-white/10 px-3 py-2 text-xs text-white/70 transition hover:bg-white/5"
+                        className="rounded-full border border-white/10 px-3 py-2 text-[11px] text-white/70 transition hover:bg-white/5"
                       >
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <>
+                  <div className="space-y-2">
                     <button
                       type="button"
                       onClick={() => onSelectSession(session.id)}
                       className="block w-full text-left"
                     >
-                      <p className="truncate font-medium text-white">
+                      <p className="truncate text-sm font-medium text-white">
                         {session.title || "Untitled session"}
                       </p>
-                      <p className="mt-1 text-xs text-white/45">
-                        {formatRelativeTime(session.created_at)}
-                      </p>
                     </button>
-                    <div className="mt-3 flex items-center justify-between gap-2">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-white/35">
-                        {isActive ? "Active" : "History"}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => startRename(session)}
-                        className="text-xs text-violet-300 transition hover:text-violet-200"
-                      >
-                        Rename
-                      </button>
+
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-white/40">
+                      <span>{formatRelativeTime(session.created_at)}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="uppercase tracking-[0.18em]">
+                          {isActive ? "Active" : "History"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => startRename(session)}
+                          className="text-violet-300 transition hover:text-violet-200"
+                        >
+                          Rename
+                        </button>
+                      </div>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             );
