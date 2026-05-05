@@ -10,6 +10,7 @@ import { retrieveTopKChunks } from "@/lib/rag/retrieve";
 import { buildRagPrompt } from "@/lib/rag/prompt";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logEvent } from "@/lib/observability";
+import { listChatSessions } from "@/lib/chat/sessions";
 
 const RequestSchema = z.object({
   question: z.string().min(1).max(2000),
@@ -65,7 +66,33 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
-    const { question, sessionId } = parsed.data;
+    const { question, sessionId: providedSessionId } = parsed.data;
+
+    let sessionId = providedSessionId;
+    if (!sessionId) {
+      const { data: createdSession, error: createSessionError } =
+        await createServiceClient()
+          .from("chat_sessions")
+          .insert({
+            owner_id: user.id,
+            title: question.slice(0, 60),
+          })
+          .select("id")
+          .single();
+
+      if (createSessionError || !createdSession) {
+        throw new Error(
+          `Failed to create chat session: ${createSessionError?.message}`,
+        );
+      }
+
+      sessionId = createdSession.id as string;
+      logEvent("api.chat.session_created", {
+        route: "chat",
+        userId: user.id,
+        sessionId,
+      });
+    }
 
     const retrievalStartedAt = performance.now();
     const chunks = await retrieveTopKChunks(question, {
@@ -120,7 +147,6 @@ export async function POST(req: NextRequest) {
       maxTokens: 1024,
       temperature: 0.2,
       onFinish: async ({ text }) => {
-        if (!sessionId) return;
         const msgs = [
           { session_id: sessionId, role: "user", content: question },
           { session_id: sessionId, role: "assistant", content: text },
@@ -147,6 +173,7 @@ export async function POST(req: NextRequest) {
     const headers = new Headers(response.headers);
     headers.set("x-rag-citations", JSON.stringify(citations));
     headers.set("x-rag-chunks-found", String(chunks.length));
+    headers.set("x-session-id", sessionId);
 
     logEvent("api.chat.started", {
       route: "chat",

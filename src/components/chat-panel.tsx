@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import type { ChunkDetailResponse, UICitation } from "@/app/chat/types";
 import { AnswerMarkdown } from "@/components/answer-markdown";
 import { ChatEmptyState } from "@/components/chat-empty-state";
@@ -10,13 +10,24 @@ import { ChunkPreviewSheet } from "@/components/chunk-preview-sheet";
 export type ChatState = "idle" | "thinking" | "streaming" | "error";
 
 type ChatPanelProps = {
+  sessionId?: string | null;
+  initialMessages?: Array<{
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    createdAt: string;
+  }>;
   onStateChange?: (state: ChatState) => void;
   onActiveCitationsChange?: (count: number) => void;
+  onSessionCreated?: (sessionId: string) => void;
 };
 
 export function ChatPanel({
+  sessionId,
+  initialMessages,
   onStateChange,
   onActiveCitationsChange,
+  onSessionCreated,
 }: ChatPanelProps) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -27,7 +38,12 @@ export function ChatPanel({
     useState<ChunkDetailResponse | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
+  const [messages, setMessages] = useState(initialMessages ?? []);
   const itemRefs = useRef(new Map<number, HTMLButtonElement>());
+
+  useEffect(() => {
+    setMessages(initialMessages ?? []);
+  }, [initialMessages]);
 
   const canSend = question.trim().length > 0 && !loading;
 
@@ -76,12 +92,23 @@ export function ChatPanel({
     onActiveCitationsChange?.(0);
     setSheetOpen(false);
 
+    const userMessage = {
+      id: crypto.randomUUID(),
+      role: "user" as const,
+      content: question,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, sessionId }),
       });
+
+      const nextSessionId = res.headers.get("x-session-id");
+      if (nextSessionId) onSessionCreated?.(nextSessionId);
 
       const header = res.headers.get("x-rag-citations");
       if (header) {
@@ -107,6 +134,16 @@ export function ChatPanel({
           setAnswer(text);
         }
       }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: text,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
 
       setState("idle");
       onStateChange?.("idle");
@@ -153,9 +190,33 @@ export function ChatPanel({
             ) : null}
           </div>
 
-          {state === "thinking" && !answer ? <ChatMessageSkeleton /> : null}
-
-          {answer || state === "error" ? (
+          {messages.length ? (
+            <div className="mt-4 space-y-4">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={
+                    message.role === "user"
+                      ? "ml-auto max-w-[85%] rounded-2xl bg-violet-600/20 p-4 text-sm text-white"
+                      : "max-w-[85%] rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/90"
+                  }
+                >
+                  {message.role === "assistant" ? (
+                    <AnswerMarkdown
+                      text={message.content}
+                      citations={citations}
+                      onCitationHover={setActiveCitation}
+                      onCitationClick={handleOpenCitation}
+                    />
+                  ) : (
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : state === "thinking" && !answer ? (
+            <ChatMessageSkeleton />
+          ) : answer || state === "error" ? (
             <AnswerMarkdown
               text={answer}
               citations={citations}
