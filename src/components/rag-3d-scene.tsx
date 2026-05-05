@@ -7,51 +7,67 @@ import type { Mesh } from "three";
 
 type Props = {
   state: ChatState;
+  activeCitations?: number;
 };
 
-function SceneContent({ state }: Props) {
-  const meshRef = useRef<Mesh>(null);
+const VISUAL_BY_STATE: Record<
+  ChatState,
+  { spin: number; pulse: number; color: string; jitter: number }
+> = {
+  idle: { spin: 0.2, pulse: 0.02, color: "#00bcd4", jitter: 0 },
+  thinking: { spin: 0.8, pulse: 0.06, color: "#4fc3f7", jitter: 0.01 },
+  streaming: { spin: 0.5, pulse: 0.04, color: "#81c784", jitter: 0 },
+  error: { spin: 0.3, pulse: 0.03, color: "#ef5350", jitter: 0.02 },
+};
+
+function SceneContent({ state, activeCitations = 0 }: Props) {
+  const meshRef = useRef<Mesh>(null!);
+  const target = VISUAL_BY_STATE[state];
+  const current = useRef({ spin: 0.2, pulse: 0.02, jitter: 0 });
 
   useFrame((_, delta) => {
-    if (!meshRef.current) return;
+    const m = meshRef.current;
+    if (!m) return;
 
-    const speed =
-      state === "idle"
-        ? 0.15
-        : state === "thinking"
-          ? 0.6
-          : state === "streaming"
-            ? 0.35
-            : 0;
+    current.current.spin += (target.spin - current.current.spin) * delta * 3;
+    current.current.pulse += (target.pulse - current.current.pulse) * delta * 3;
+    current.current.jitter +=
+      (target.jitter - current.current.jitter) * delta * 3;
 
-    meshRef.current.rotation.y += speed * delta;
-    meshRef.current.rotation.x += speed * delta * 0.35;
+    const t = performance.now() / 1000;
+    m.rotation.y += current.current.spin * delta;
+    m.scale.setScalar(
+      1 + Math.sin(t * 4 + activeCitations * 0.15) * current.current.pulse,
+    );
+
+    const j = current.current.jitter;
+    m.position.x = Math.sin(t * 10) * j;
+    m.position.y = Math.cos(t * 12) * j;
   });
-
-  const color = useMemo(() => {
-    if (state === "error") return "#ef4444";
-    if (state === "streaming") return "#22c55e";
-    if (state === "thinking") return "#a855f7";
-    return "#60a5fa";
-  }, [state]);
 
   return (
     <>
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[3, 4, 5]} intensity={1.3} color={color} />
+      <ambientLight intensity={0.3} />
+      <pointLight position={[4, 4, 4]} intensity={1.5} color={target.color} />
       <mesh ref={meshRef}>
-        <icosahedronGeometry args={[1.1, 1]} />
-        <meshStandardMaterial color={color} roughness={0.35} metalness={0.35} />
+        <icosahedronGeometry args={[1, 1]} />
+        <meshStandardMaterial
+          color="#111827"
+          emissive={target.color}
+          emissiveIntensity={1.2}
+          metalness={0.3}
+          roughness={0.2}
+        />
       </mesh>
     </>
   );
 }
 
-export function Rag3DScene({ state }: Props) {
+export function Rag3DScene({ state, activeCitations = 0 }: Props) {
   return (
-    <div className="h-72 w-full overflow-hidden rounded-3xl border border-white/10 bg-black/60">
-      <Canvas camera={{ position: [0, 0, 4], fov: 45 }}>
-        <SceneContent state={state} />
+    <div className="h-72 w-full overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-black via-slate-900 to-black">
+      <Canvas camera={{ position: [0, 0, 4], fov: 50 }}>
+        <SceneContent state={state} activeCitations={activeCitations} />
       </Canvas>
     </div>
   );

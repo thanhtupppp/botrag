@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ChunkDetailResponse, UICitation } from "@/app/chat/types";
 import { AnswerMarkdown } from "@/components/answer-markdown";
 import { ChatEmptyState } from "@/components/chat-empty-state";
@@ -19,6 +19,7 @@ export function ChatPanel() {
     useState<ChunkDetailResponse | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
+  const itemRefs = useRef(new Map<number, HTMLButtonElement>());
 
   const canSend = question.trim().length > 0 && !loading;
 
@@ -38,6 +39,11 @@ export function ChatPanel() {
   async function handleOpenCitation(index: number) {
     const citation = citations.find((c) => c.index === index);
     if (!citation) return;
+
+    const el = itemRefs.current.get(index);
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
 
     setActiveCitation(index);
 
@@ -155,25 +161,32 @@ export function ChatPanel() {
         <div className="mt-4 space-y-4 text-sm text-white/70">
           {citations.length ? (
             citations.map((c) => (
-              <button
+              <div
                 key={c.index}
-                type="button"
-                onMouseEnter={() => setActiveCitation(c.index)}
-                onMouseLeave={() => setActiveCitation(null)}
-                onClick={async () => {
-                  await handleOpenCitation(c.index);
+                ref={(el) => {
+                  if (!el) return;
+                  itemRefs.current.set(c.index, el);
                 }}
-                className={`block w-full rounded-2xl border p-4 text-left transition ${
-                  activeCitation === c.index
-                    ? "border-violet-400/40 bg-violet-500/10"
-                    : "border-white/10 bg-black/20 hover:border-violet-400/40 hover:bg-white/5"
-                }`}
               >
-                <p className="font-medium text-white">
-                  [#{c.index}] score {c.score}
-                </p>
-                <p className="mt-2 line-clamp-4">{c.preview}</p>
-              </button>
+                <button
+                  type="button"
+                  onMouseEnter={() => setActiveCitation(c.index)}
+                  onMouseLeave={() => setActiveCitation(null)}
+                  onClick={async () => {
+                    await handleOpenCitation(c.index);
+                  }}
+                  className={`block w-full rounded-2xl border p-4 text-left transition ${
+                    activeCitation === c.index
+                      ? "border-violet-400/40 bg-violet-500/10"
+                      : "border-white/10 bg-black/20 hover:border-violet-400/40 hover:bg-white/5"
+                  }`}
+                >
+                  <p className="font-medium text-white">
+                    [#{c.index}] score {c.score}
+                  </p>
+                  <p className="mt-2 line-clamp-4">{c.preview}</p>
+                </button>
+              </div>
             ))
           ) : (
             <p>Chưa có citation nào.</p>
