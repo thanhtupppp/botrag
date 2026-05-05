@@ -25,7 +25,7 @@ async function singleEmbed(text: string): Promise<number[]> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: GEMINI_MODEL,
+      model: `models/${GEMINI_MODEL}`,
       taskType: "RETRIEVAL_QUERY",
       output_dimensionality: OUTPUT_DIM,
       content: { parts: [{ text }] },
@@ -46,7 +46,7 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       requests: texts.map((text) => ({
-        model: GEMINI_MODEL,
+        model: `models/${GEMINI_MODEL}`,
         taskType: "RETRIEVAL_DOCUMENT",
         output_dimensionality: OUTPUT_DIM,
         content: { parts: [{ text }] },
@@ -55,9 +55,8 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
   });
 
   if (!res.ok) throw new Error(`Batch embed: ${await res.text()}`);
-  const data = (await res.json()) as {
-    embeddings: Array<{ values: number[] }>;
-  };
+
+  const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
   return data.embeddings.map((e) => e.values);
 }
 
@@ -77,9 +76,11 @@ async function generateAnswer(prompt: string): Promise<string> {
   );
 
   if (!res.ok) throw new Error(`GenerateContent: ${await res.text()}`);
+
   const data = (await res.json()) as {
     candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
   };
+
   return data.candidates[0].content.parts[0].text;
 }
 
@@ -113,10 +114,11 @@ async function main() {
 
   try {
     console.log("\n[1] Seeding test document...");
-    const chunks = KNOWLEDGE_TEXT.trim()
-      .split("\n\n")
-      .filter(Boolean)
-      .map((content, i) => ({ content: content.trim(), index: i }));
+
+    const chunks = KNOWLEDGE_TEXT.trim().split("\n\n").filter(Boolean).map((content, i) => ({
+      content: content.trim(),
+      index: i,
+    }));
 
     const { data: doc, error: docErr } = await supabase
       .from("documents")
@@ -129,6 +131,7 @@ async function main() {
       })
       .select("id")
       .single();
+
     if (docErr || !doc) throw new Error(docErr?.message);
 
     documentId = doc.id as string;
@@ -145,35 +148,38 @@ async function main() {
         embedding: JSON.stringify(embeddings[i]),
       })),
     );
-    await supabase
-      .from("documents")
-      .update({ status: "ready" })
-      .eq("id", documentId);
+
+    await supabase.from("documents").update({ status: "ready" }).eq("id", documentId);
+
     console.log(`  ✅ ${chunks.length} chunks seeded`);
 
     let passed = 0;
 
     for (const test of TESTS) {
       console.log(`\n[Q] ${test.q}`);
-      const qEmbed = await singleEmbed(test.q);
-      const { data: matched, error } = await supabase.rpc("match_chunks", {
-        query_embedding: qEmbed,
+
+      const queryEmbedding = await singleEmbed(test.q);
+      const { data: matched, error: rpcErr } = await supabase.rpc("match_chunks", {
+        query_embedding: queryEmbedding,
         match_count: 3,
         filter_owner_id: TEST_OWNER_ID,
       });
 
-      if (error) throw new Error(`RPC: ${error.message}`);
+      if (rpcErr) throw new Error(`RPC: ${rpcErr.message}`);
 
-      const results = (
-        matched as Array<{ similarity: number; content: string }>
-      ).filter((r) => r.similarity >= 0.3);
+      const results = (matched as Array<{ similarity: number; content: string }>).filter(
+        (r) => r.similarity >= 0.3,
+      );
 
       if (!test.expect) {
-        console.log(
-          results.length === 0
-            ? "  ✅ Correctly 0 chunks (out-of-domain)"
-            : `  ⚠️  Got ${results.length} chunks for out-of-domain (threshold cần tăng)`,
-        );
+        if (results.length === 0) {
+          console.log("  ✅ Correctly 0 chunks (out-of-domain)");
+        } else {
+          console.warn(
+            `  ⚠️  Expected 0 chunks but got ${results.length} (threshold có thể cần tăng)`,
+          );
+        }
+
         passed++;
         continue;
       }
@@ -186,12 +192,29 @@ async function main() {
       const context = results
         .map((r, i) => `[#${i + 1}] ${r.content}`)
         .join("\n\n");
-      const answer = await generateAnswer(
-        `Bạn là trợ lý RAG. Chỉ trả lời dựa trên ngữ cảnh.\nCâu hỏi: ${test.q}\nNgữ cảnh:\n${context}`,
-      );
+
+      const prompt = [
+        "Bạn là trợ lý RAG. Chỉ trả lời dựa trên ngữ cảnh được cung cấp.",
+        "Nếu không đủ thông tin, hãy nói rõ.",
+        "",
+        `Câu hỏi: ${test.q}`,
+        "",
+        "Ngữ cảnh:",
+        context,
+      ].join("\n");
+
+      const answer = await generateAnswer(prompt);
+
       console.log(
-        `  score_top=${results[0].similarity.toFixed(4)} | ${answer.slice(0, 150).replace(/\n/g, " ")}`,
+        `  Retrieved: ${results.length} chunks, top=${results[0].similarity.toFixed(4)}`,
       );
+
+      console.log(
+        `  Answer: ${answer
+          .slice(0, 180)
+          .replace(/\n/g, " ")}${answer.length > 180 ? "..." : ""}`,
+      );
+
       passed++;
     }
 
