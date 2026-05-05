@@ -1,9 +1,9 @@
 /**
  * Gemini Embedding (text-only)
- * Model: gemini-gemini-embedding-001
+ * Model: gemini-embedding-001
  * Output dimension: 768 (set via output_dimensionality)
  */
-const MODEL = "gemini-gemini-embedding-001";
+const MODEL = "gemini-embedding-001";
 const BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}`;
 
 function apiKey(): string {
@@ -22,7 +22,7 @@ interface EmbedOptions {
     | "CODE_RETRIEVAL_QUERY"
     | "QUESTION_ANSWERING"
     | "FACT_VERIFICATION";
-  /** Override embedding size. Default 768 to khớp schema vector(768). */
+  /** Override embedding size. Default 768 để khớp schema vector(768). */
   outputDimensionality?: number;
 }
 
@@ -44,8 +44,8 @@ export async function embed(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      // REST doc cho gemini-gemini-embedding-001 dùng trực tiếp model name, không cần prefix "models/"
-      model: MODEL,
+      // Theo docs: body.model dùng resource name "models/..."
+      model: `models/${MODEL}`,
       taskType,
       output_dimensionality: outputDimensionality,
       content: {
@@ -82,7 +82,7 @@ export async function embedBatch(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       requests: texts.map((text) => ({
-        model: MODEL,
+        model: `models/${MODEL}`,
         taskType,
         output_dimensionality: outputDimensionality,
         content: {
@@ -96,9 +96,7 @@ export async function embedBatch(
     throw new Error(`embedBatch() failed ${res.status}: ${await res.text()}`);
   }
 
-  const data = (await res.json()) as {
-    embeddings: Array<{ values: number[] }>;
-  };
+  const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
   return data.embeddings.map((e) => e.values);
 }
 

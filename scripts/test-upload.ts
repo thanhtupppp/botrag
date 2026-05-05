@@ -5,17 +5,14 @@ config({ path: ".env.local" });
 import { createClient } from "@supabase/supabase-js";
 
 const TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001";
-const GEMINI_MODEL = "gemini-gemini-embedding-001";
+const GEMINI_MODEL = "gemini-embedding-001";
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
 const OUTPUT_DIM = 768;
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key)
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY",
-    );
+  if (!url || !key) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
@@ -26,7 +23,7 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       requests: texts.map((text) => ({
-        model: GEMINI_MODEL,
+        model: `models/${GEMINI_MODEL}`,
         taskType: "RETRIEVAL_DOCUMENT",
         output_dimensionality: OUTPUT_DIM,
         content: { parts: [{ text }] },
@@ -34,12 +31,9 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
     }),
   });
 
-  if (!res.ok)
-    throw new Error(`Embed batch error ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`Embed batch error ${res.status}: ${await res.text()}`);
 
-  const data = (await res.json()) as {
-    embeddings: Array<{ values: number[] }>;
-  };
+  const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
   return data.embeddings.map((e) => e.values);
 }
 
@@ -129,28 +123,21 @@ async function main() {
 
     console.log(`  ✅ ${chunks.length} chunks inserted`);
 
-    await supabase
-      .from("documents")
-      .update({ status: "ready" })
-      .eq("id", documentId);
+    await supabase.from("documents").update({ status: "ready" }).eq("id", documentId);
     console.log("  ✅ status → ready");
 
     console.log("\n[5] Testing match_chunks RPC...");
-    const { data: matched, error: rpcErr } = await supabase.rpc(
-      "match_chunks",
-      {
-        query_embedding: embeddings[0],
-        match_count: 3,
-        filter_owner_id: TEST_OWNER_ID,
-      },
-    );
+    const { data: matched, error: rpcErr } = await supabase.rpc("match_chunks", {
+      query_embedding: embeddings[0],
+      match_count: 3,
+      filter_owner_id: TEST_OWNER_ID,
+    });
 
     if (rpcErr) throw new Error(`match_chunks: ${rpcErr.message}`);
 
     const results = matched as Array<{ similarity: number; content: string }>;
 
-    if (results.length === 0)
-      throw new Error("match_chunks returned 0 results");
+    if (results.length === 0) throw new Error("match_chunks returned 0 results");
 
     console.log(`  ✅ match_chunks: ${results.length} results`);
     results.forEach((r, i) =>
