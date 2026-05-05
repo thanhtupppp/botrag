@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { googleEmbeddingProvider } from "@/lib/embeddings/google";
+import { logEvent, measureAsync } from "@/lib/observability";
 import type { RetrievedChunk } from "./types";
 
 export interface RetrieveOptions {
@@ -17,25 +18,41 @@ const DEFAULT_TOP_SCORE_GATE = 0.6;
 
 export async function retrieveTopKChunks(
   query: string,
-  options: RetrieveOptions
+  options: RetrieveOptions,
 ): Promise<RetrievedChunk[]> {
-  const {
-    k = 5,
-    ownerId,
-    minSimilarity = DEFAULT_MIN_SIMILARITY,
-  } = options;
+  const { k = 5, ownerId, minSimilarity = DEFAULT_MIN_SIMILARITY } = options;
 
-  const embedding = await googleEmbeddingProvider.embed(query);
+  const startedAt = performance.now();
+  const embedding = await measureAsync(
+    "rag.retrieval.embedding",
+    () => googleEmbeddingProvider.embed(query),
+    { ownerId, k, minSimilarity },
+  );
 
   const supabase = createServiceClient();
-
+  const rpcStartedAt = performance.now();
   const { data, error } = await supabase.rpc("match_chunks", {
     query_embedding: embedding,
     match_count: k,
     filter_owner_id: ownerId,
   });
+  const rpcLatencyMs = Math.round(performance.now() - rpcStartedAt);
 
-  if (error) throw new Error(`Retrieval error: ${error.message}`);
+  if (error) {
+    logEvent(
+      "rag.retrieval.error",
+      {
+        ownerId,
+        k,
+        minSimilarity,
+        rpcLatencyMs,
+        totalLatencyMs: Math.round(performance.now() - startedAt),
+        error: error.message,
+      },
+      "error",
+    );
+    throw new Error(`Retrieval error: ${error.message}`);
+  }
   if (!data) return [];
 
   const rows = data as Array<{
@@ -46,13 +63,27 @@ export async function retrieveTopKChunks(
     similarity: number;
   }>;
 
-  // Lọc các chunk có similarity >= minSimilarity
+  const rawCount = rows.length;
   const filtered = rows.filter((row) => row.similarity >= minSimilarity);
-  if (filtered.length === 0) return [];
+  const filteredCount = filtered.length;
+  const topScore = filtered[0]?.similarity ?? null;
+  const gateRejected =
+    filteredCount > 0 && filtered[0].similarity < DEFAULT_TOP_SCORE_GATE;
+  const totalLatencyMs = Math.round(performance.now() - startedAt);
 
-  // Top-score gate: nếu score cao nhất vẫn < DEFAULT_TOP_SCORE_GATE
-  // coi như không đủ tự tin → trả [] để LLM biết là "không có ngữ cảnh phù hợp".
-  if (filtered[0].similarity < DEFAULT_TOP_SCORE_GATE) {
+  logEvent("rag.retrieval.summary", {
+    ownerId,
+    k,
+    minSimilarity,
+    rawCount,
+    filteredCount,
+    topScore,
+    rpcLatencyMs,
+    totalLatencyMs,
+    gateRejected,
+  });
+
+  if (filteredCount === 0 || gateRejected) {
     return [];
   }
 

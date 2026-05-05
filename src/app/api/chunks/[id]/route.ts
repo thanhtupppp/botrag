@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logEvent } from "@/lib/observability";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 type ChunkDetailResponse = {
   id: string;
@@ -17,6 +19,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
+    const startedAt = performance.now();
     const supabase = await createSupabaseServerClient();
 
     const {
@@ -25,7 +28,41 @@ export async function GET(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      logEvent(
+        "api.chunks.unauthorized",
+        { route: "chunks", status: 401 },
+        "warn",
+      );
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const ip = req.headers.get("x-forwarded-for");
+    const { allowed, remaining, resetAt } = await checkRateLimit(
+      "chunks",
+      user.id,
+      ip,
+    );
+
+    if (!allowed) {
+      logEvent(
+        "api.chunks.rate_limited",
+        {
+          route: "chunks",
+          userId: user.id,
+          remaining,
+          resetAt,
+        },
+        "warn",
+      );
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": Math.ceil((resetAt - Date.now()) / 1000).toString(),
+          },
+        },
+      );
     }
 
     const chunkId = params.id;
@@ -52,6 +89,15 @@ export async function GET(
       .single();
 
     if (error || !data) {
+      logEvent(
+        "api.chunks.not_found",
+        {
+          route: "chunks",
+          userId: user.id,
+          chunkId,
+        },
+        "warn",
+      );
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
@@ -66,9 +112,24 @@ export async function GET(
       createdAt: data.created_at,
     };
 
+    logEvent("api.chunks.success", {
+      route: "chunks",
+      userId: user.id,
+      chunkId,
+      documentId: payload.documentId,
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+
     return NextResponse.json(payload);
   } catch (err) {
-    console.error("[chunks/:id] error:", err);
+    logEvent(
+      "api.chunks.error",
+      {
+        route: "chunks",
+        error: String(err instanceof Error ? err.message : err),
+      },
+      "error",
+    );
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },
