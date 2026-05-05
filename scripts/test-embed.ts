@@ -3,7 +3,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 // Gemini Embedding 1 = embedding-001, dimension 768
-const GEMINI_MODEL = "gemini-embedding-001";
+const GEMINI_MODEL = "embedding-001";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:embedContent`;
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
 const EXPECTED_DIM = 768;
@@ -18,9 +18,10 @@ async function testSingleEmbed() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: `models/${GEMINI_MODEL}`,
-      content: { parts: [{ text: "RAG chatbot test tiếng Việt" }] },
+      model: GEMINI_MODEL,
       taskType: "RETRIEVAL_DOCUMENT",
+      output_dimensionality: EXPECTED_DIM,
+      content: { parts: [{ text: "RAG chatbot test tiếng Việt" }] },
     }),
   });
 
@@ -45,10 +46,11 @@ async function testSingleEmbed() {
       `  → Cần chạy: ALTER TABLE document_chunks ALTER COLUMN embedding TYPE vector(${dim});`,
     );
   }
+
   return dim;
 }
 
-async function testBatchEmbed(dim: number) {
+async function testBatchEmbed(expectedDim: number) {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
   const texts = [
     "Hướng dẫn cài đặt phần mềm",
@@ -62,9 +64,10 @@ async function testBatchEmbed(dim: number) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       requests: texts.map((text) => ({
-        model: `models/${GEMINI_MODEL}`,
-        content: { parts: [{ text }] },
+        model: GEMINI_MODEL,
         taskType: "RETRIEVAL_DOCUMENT",
+        output_dimensionality: expectedDim,
+        content: { parts: [{ text }] },
       })),
     }),
   });
@@ -95,6 +98,7 @@ async function testBatchEmbed(dim: number) {
 async function main() {
   console.log("=== TEST: Gemini Embeddings ===");
   console.log(`    Model: ${GEMINI_MODEL}`);
+
   try {
     const dim = await testSingleEmbed();
     await testBatchEmbed(dim);

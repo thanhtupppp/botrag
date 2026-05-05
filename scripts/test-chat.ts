@@ -8,6 +8,7 @@ const TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001";
 const GEMINI_MODEL = "gemini-embedding-001";
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
 const SINGLE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:embedContent`;
+const OUTPUT_DIM = 768;
 
 function getServiceClient() {
   return createClient(
@@ -19,33 +20,40 @@ function getServiceClient() {
 
 async function singleEmbed(text: string): Promise<number[]> {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
+
   const res = await fetch(`${SINGLE_URL}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: `models/${GEMINI_MODEL}`,
-      content: { parts: [{ text }] },
+      model: GEMINI_MODEL,
       taskType: "RETRIEVAL_QUERY",
+      output_dimensionality: OUTPUT_DIM,
+      content: { parts: [{ text }] },
     }),
   });
+
   if (!res.ok) throw new Error(`Embed failed: ${await res.text()}`);
+
   const data = (await res.json()) as { embedding: { values: number[] } };
   return data.embedding.values;
 }
 
 async function embedBatch(texts: string[]): Promise<number[][]> {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
+
   const res = await fetch(`${BATCH_URL}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       requests: texts.map((text) => ({
-        model: `models/${GEMINI_MODEL}`,
-        content: { parts: [{ text }] },
+        model: GEMINI_MODEL,
         taskType: "RETRIEVAL_DOCUMENT",
+        output_dimensionality: OUTPUT_DIM,
+        content: { parts: [{ text }] },
       })),
     }),
   });
+
   if (!res.ok) throw new Error(`Batch embed: ${await res.text()}`);
   const data = (await res.json()) as {
     embeddings: Array<{ values: number[] }>;
@@ -55,6 +63,7 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
 
 async function generateAnswer(prompt: string): Promise<string> {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
     {
@@ -66,6 +75,7 @@ async function generateAnswer(prompt: string): Promise<string> {
       }),
     },
   );
+
   if (!res.ok) throw new Error(`GenerateContent: ${await res.text()}`);
   const data = (await res.json()) as {
     candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
@@ -96,6 +106,8 @@ const TESTS = [
 
 async function main() {
   console.log("=== TEST: RAG Chat Pipeline ===");
+  console.log(`    Embedding model: ${GEMINI_MODEL}, dim: ${OUTPUT_DIM}`);
+
   const supabase = getServiceClient();
   let documentId: string | null = null;
 
@@ -118,9 +130,11 @@ async function main() {
       .select("id")
       .single();
     if (docErr || !doc) throw new Error(docErr?.message);
+
     documentId = doc.id as string;
 
     const embeddings = await embedBatch(chunks.map((c) => c.content));
+
     await supabase.from("document_chunks").insert(
       chunks.map((c, i) => ({
         document_id: documentId!,
@@ -138,6 +152,7 @@ async function main() {
     console.log(`  ✅ ${chunks.length} chunks seeded`);
 
     let passed = 0;
+
     for (const test of TESTS) {
       console.log(`\n[Q] ${test.q}`);
       const qEmbed = await singleEmbed(test.q);
@@ -146,7 +161,8 @@ async function main() {
         match_count: 3,
         filter_owner_id: TEST_OWNER_ID,
       });
-      if (error) throw new Error(`RPC: ${error.message}`);
+
+      if (rpcErr) throw new Error(`RPC: ${rpcErr.message}`);
 
       const results = (
         matched as Array<{ similarity: number; content: string }>
