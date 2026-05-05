@@ -1,16 +1,11 @@
 #!/usr/bin/env npx tsx
-/**
- * Test: Retrieval + Chat pipeline (không cần auth user thật)
- * Upload một doc thật → hỏi câu hỏi liên quan → verify câu trả lời grounded
- * Usage: npx tsx scripts/test-chat.ts
- */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { createClient } from "@supabase/supabase-js";
 
 const TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001";
-const GEMINI_MODEL = "text-embedding-004";
+const GEMINI_MODEL = "text-embedding-005";
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
 const SINGLE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:embedContent`;
 
@@ -20,7 +15,7 @@ function getServiceClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-async function singleEmbed(text: string): Promise<number[]> {
+async function singleEmbed(text: string, taskType = "RETRIEVAL_QUERY"): Promise<number[]> {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
   const res = await fetch(`${SINGLE_URL}?key=${apiKey}`, {
     method: "POST",
@@ -28,7 +23,7 @@ async function singleEmbed(text: string): Promise<number[]> {
     body: JSON.stringify({
       model: `models/${GEMINI_MODEL}`,
       content: { parts: [{ text }] },
-      taskType: "RETRIEVAL_QUERY", // query dùng RETRIEVAL_QUERY
+      taskType,
     }),
   });
   if (!res.ok) throw new Error(`Embed failed: ${await res.text()}`);
@@ -90,24 +85,25 @@ Email: support@example.com
 Hotline: 1900-1234 (8:00 - 20:00 hàng ngày)
 `;
 
-const TEST_QUESTIONS = [
-  "Tôi có thể hoàn tiền sau bao nhiêu ngày?",
-  "Sản phẩm kỹ thuật số có được hoàn không?",
-  "Tôi liên hệ hỗ trợ bằng cách nào?",
-  "Thời tiết hôm nay thế nào?", // câu hỏi ngoài tài liệu — phải trả về "không đủ thông tin"
+const TESTS = [
+  { q: "Tôi có thể hoàn tiền sau bao nhiêu ngày?", expectChunks: true },
+  { q: "Sản phẩm kỹ thuật số có được hoàn không?", expectChunks: true },
+  { q: "Liên hệ hỗ trợ bằng cách nào?", expectChunks: true },
+  { q: "Thời tiết hôm nay thế nào?", expectChunks: false }, // out-of-domain
 ];
 
 async function main() {
   console.log("=== TEST: RAG Chat Pipeline ===");
+  console.log(`    Embedding model: ${GEMINI_MODEL}`);
+
   const supabase = getServiceClient();
   let documentId: string | null = null;
 
   try {
-    // Seed data
+    // Seed
     console.log("\n[1] Seeding test document...");
     const chunks = KNOWLEDGE_TEXT
-      .trim()
-      .split("\n\n")
+      .trim().split("\n\n")
       .filter((p) => p.trim())
       .map((content, i) => ({ content: content.trim(), index: i }));
 
@@ -120,8 +116,7 @@ async function main() {
         mime_type: "text/markdown",
         status: "processing",
       })
-      .select("id")
-      .single();
+      .select("id").single();
 
     if (docErr || !doc) throw new Error(docErr?.message);
     documentId = doc.id as string;
@@ -140,49 +135,55 @@ async function main() {
     await supabase.from("documents").update({ status: "ready" }).eq("id", documentId);
     console.log(`  ✅ Seeded ${chunks.length} chunks`);
 
-    // Test retrieval + answer for each question
-    for (const question of TEST_QUESTIONS) {
-      console.log(`\n[Q] ${question}`);
+    // Test each question
+    let passed = 0;
+    for (const test of TESTS) {
+      console.log(`\n[Q] ${test.q}`);
 
-      const queryEmbedding = await singleEmbed(question);
+      const queryEmbedding = await singleEmbed(test.q, "RETRIEVAL_QUERY");
       const { data: matched, error: rpcErr } = await supabase.rpc("match_chunks", {
         query_embedding: queryEmbedding,
         match_count: 3,
         filter_owner_id: TEST_OWNER_ID,
       });
-
       if (rpcErr) throw new Error(`RPC error: ${rpcErr.message}`);
 
-      const results = (matched as Array<{ similarity: number; content: string }>).filter(
-        (r) => r.similarity >= 0.3
-      );
+      const results = (matched as Array<{ similarity: number; content: string }>)
+        .filter((r) => r.similarity >= 0.3);
 
-      if (results.length === 0) {
-        console.log("  ℹ️  No relevant chunks found (similarity < 0.3)");
-        console.log("  → Expected: bot trả lời \"không đủ thông tin\"");
+      if (!test.expectChunks) {
+        if (results.length === 0) {
+          console.log("  ✅ Correctly returned 0 chunks (out-of-domain query)");
+          passed++;
+        } else {
+          console.warn(`  ⚠️  Expected 0 chunks but got ${results.length} (threshold may need tuning)`);
+        }
         continue;
       }
 
-      const context = results
-        .map((r, i) => `[#${i + 1}] ${r.content}`)
-        .join("\n\n");
+      if (results.length === 0) {
+        console.error("  ❌ No chunks retrieved — retrieval broken");
+        continue;
+      }
 
+      const context = results.map((r, i) => `[#${i + 1}] ${r.content}`).join("\n\n");
       const prompt = [
         "Bạn là trợ lý RAG. Chỉ trả lời dựa trên ngữ cảnh được cung cấp.",
-        "Nếu không đủ thông tin, nói: không đủ dữ liệu trong tài liệu.",
+        "Nếu không đủ thông tin, hãy nói rõ.",
         "",
-        `Câu hỏi: ${question}`,
+        `Câu hỏi: ${test.q}`,
         "",
         "Ngữ cảnh:",
         context,
       ].join("\n");
 
       const answer = await generateAnswer(prompt);
-      console.log(`  Retrieved: ${results.length} chunks (top score: ${results[0].similarity.toFixed(4)})`);
+      console.log(`  Retrieved: ${results.length} chunks (top: ${results[0].similarity.toFixed(4)})`);
       console.log(`  Answer: ${answer.slice(0, 200).replace(/\n/g, " ")}`);
+      passed++;
     }
 
-    console.log("\n✅ Chat pipeline test complete!\n");
+    console.log(`\n✅ Chat pipeline test: ${passed}/${TESTS.length} passed\n`);
   } catch (err) {
     console.error("\n❌ Test failed:", err);
   } finally {

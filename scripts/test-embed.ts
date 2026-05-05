@@ -6,9 +6,11 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-const GEMINI_MODEL = "text-embedding-004";
+// text-embedding-005: stable, dimension 768, replaces text-embedding-004
+const GEMINI_MODEL = "text-embedding-005";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:embedContent`;
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
+const EXPECTED_DIM = 768;
 
 async function testSingleEmbed() {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -33,12 +35,15 @@ async function testSingleEmbed() {
   const data = (await res.json()) as { embedding: { values: number[] } };
   const dim = data.embedding.values.length;
 
-  if (dim !== 768) {
-    throw new Error(`Expected dimension 768, got ${dim}. Schema will reject inserts!`);
+  if (dim !== EXPECTED_DIM) {
+    throw new Error(
+      `Dimension mismatch: expected ${EXPECTED_DIM}, got ${dim}.\n` +
+      `Schema sẽ reject inserts! Cần chạy migration đổi vector(${dim}).`
+    );
   }
 
-  console.log(`  ✅ Single embed OK — dimension: ${dim}`);
-  console.log(`  Sample values: [${data.embedding.values.slice(0, 4).map(v => v.toFixed(6)).join(", ")}, ...]`);
+  console.log(`  ✅ Single embed OK — model: ${GEMINI_MODEL}, dimension: ${dim}`);
+  console.log(`  Sample: [${data.embedding.values.slice(0, 4).map(v => v.toFixed(6)).join(", ")}, ...]`);
 }
 
 async function testBatchEmbed() {
@@ -49,7 +54,7 @@ async function testBatchEmbed() {
     "Quy trình xử lý đơn hàng",
   ];
 
-  console.log("\n[2] Testing batch embed...");
+  console.log("\n[2] Testing batch embed (3 texts)...");
   const res = await fetch(`${BATCH_URL}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -70,17 +75,22 @@ async function testBatchEmbed() {
   const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
   const count = data.embeddings.length;
   const dims = data.embeddings.map((e) => e.values.length);
-  const allCorrect = dims.every((d) => d === 768);
+  const allCorrect = dims.every((d) => d === EXPECTED_DIM);
 
   if (!allCorrect) {
-    throw new Error(`Dimension mismatch in batch: ${dims.join(", ")}`);
+    throw new Error(`Dimension mismatch in batch: got [${dims.join(", ")}], expected all ${EXPECTED_DIM}`);
   }
 
-  console.log(`  ✅ Batch embed OK — ${count} vectors, all dimension: 768`);
+  if (count !== texts.length) {
+    throw new Error(`Expected ${texts.length} embeddings, got ${count}`);
+  }
+
+  console.log(`  ✅ Batch embed OK — ${count} vectors, dimension: ${EXPECTED_DIM}`);
 }
 
 async function main() {
   console.log("=== TEST: Gemini Embeddings ===");
+  console.log(`    Model: ${GEMINI_MODEL}`);
   try {
     await testSingleEmbed();
     await testBatchEmbed();

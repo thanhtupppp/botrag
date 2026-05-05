@@ -1,29 +1,20 @@
 #!/usr/bin/env npx tsx
-/**
- * Test: Full ingestion pipeline (parse → chunk → embed → upsert)
- * Usage: npx tsx scripts/test-upload.ts
- *
- * Yêu cầu: SUPABASE_SERVICE_ROLE_KEY + GOOGLE_GENERATIVE_AI_API_KEY trong .env.local
- * Test dùng service role nên không cần auth user thật.
- */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { createClient } from "@supabase/supabase-js";
 
-const TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001"; // UUID giả cho test
+const TEST_OWNER_ID = "00000000-0000-0000-0000-000000000001";
+const GEMINI_MODEL = "text-embedding-005";
+const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
+const EXPECTED_DIM = 768;
 
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Supabase env vars missing");
+  if (!url || !key) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   return createClient(url, key, { auth: { persistSession: false } });
 }
-
-// --- Inline helpers (tránh import path alias khi chạy script) ---
-
-const GEMINI_MODEL = "text-embedding-004";
-const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
 
 async function embedBatch(texts: string[]): Promise<number[][]> {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
@@ -40,13 +31,16 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
   });
   if (!res.ok) throw new Error(`Embed batch error ${res.status}: ${await res.text()}`);
   const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
-  return data.embeddings.map((e) => e.values);
+  const vecs = data.embeddings.map((e) => e.values);
+  const badDim = vecs.find((v) => v.length !== EXPECTED_DIM);
+  if (badDim) throw new Error(`Unexpected dimension: ${badDim.length}, expected ${EXPECTED_DIM}`);
+  return vecs;
 }
 
-function chunkTextSimple(text: string, size = 800, overlap = 120) {
+function chunkText(text: string, size = 800, overlap = 120) {
   const chunks: { content: string; index: number }[] = [];
-  let start = 0, i = 0;
   const norm = text.replace(/\r\n/g, "\n").trim();
+  let start = 0, i = 0;
   while (start < norm.length) {
     const end = Math.min(start + size, norm.length);
     chunks.push({ content: norm.slice(start, end), index: i++ });
@@ -55,8 +49,6 @@ function chunkTextSimple(text: string, size = 800, overlap = 120) {
   }
   return chunks;
 }
-
-// ----------------------------------------------------------------
 
 const SAMPLE_TEXT = `
 # Tài liệu kiểm tra RAG Pipeline
@@ -80,6 +72,7 @@ Bước 5: Khởi động server với npm run dev.
 
 async function main() {
   console.log("=== TEST: Upload / Ingestion Pipeline ===");
+  console.log(`    Embedding model: ${GEMINI_MODEL}`);
 
   const supabase = getServiceClient();
   let documentId: string | null = null;
@@ -105,22 +98,18 @@ async function main() {
 
     // Step 2: Chunk
     console.log("\n[2] Chunking text...");
-    const chunks = chunkTextSimple(SAMPLE_TEXT.trim());
-    console.log(`  ✅ ${chunks.length} chunks created`);
+    const chunks = chunkText(SAMPLE_TEXT.trim());
+    console.log(`  ✅ ${chunks.length} chunks`);
     chunks.forEach((c, i) =>
-      console.log(`     Chunk ${i}: ${c.content.slice(0, 60).replace(/\n/g, " ")}...`)
+      console.log(`     [${i}] ${c.content.slice(0, 70).replace(/\n/g, " ")}...`)
     );
 
     // Step 3: Embed
-    console.log("\n[3] Embedding chunks via Gemini...");
+    console.log("\n[3] Embedding...");
     const embeddings = await embedBatch(chunks.map((c) => c.content));
-    console.log(`  ✅ ${embeddings.length} embeddings returned, dimension: ${embeddings[0].length}`);
+    console.log(`  ✅ ${embeddings.length} embeddings, dimension: ${embeddings[0].length}`);
 
-    if (embeddings[0].length !== 768) {
-      throw new Error(`Dimension mismatch: expected 768, got ${embeddings[0].length}`);
-    }
-
-    // Step 4: Upsert chunks
+    // Step 4: Upsert
     console.log("\n[4] Upserting chunks to Supabase...");
     const rows = chunks.map((chunk, idx) => ({
       document_id: documentId!,
@@ -130,7 +119,6 @@ async function main() {
       metadata: { source: "test.md" },
       embedding: JSON.stringify(embeddings[idx]),
     }));
-
     const { error: insertErr } = await supabase.from("document_chunks").insert(rows);
     if (insertErr) throw new Error(`Insert chunks failed: ${insertErr.message}`);
     console.log(`  ✅ ${rows.length} chunks inserted`);
@@ -139,26 +127,27 @@ async function main() {
     await supabase.from("documents").update({ status: "ready" }).eq("id", documentId);
     console.log("  ✅ Document status → ready");
 
-    // Step 6: Verify via match_chunks RPC
+    // Step 6: Test match_chunks RPC
     console.log("\n[5] Testing match_chunks RPC...");
-    const queryEmbed = embeddings[0]; // dùng embedding chunk đầu làm query
     const { data: matched, error: rpcErr } = await supabase.rpc("match_chunks", {
-      query_embedding: queryEmbed,
+      query_embedding: embeddings[0],
       match_count: 3,
       filter_owner_id: TEST_OWNER_ID,
     });
-
     if (rpcErr) throw new Error(`match_chunks RPC failed: ${rpcErr.message}`);
-    console.log(`  ✅ match_chunks returned ${(matched as unknown[]).length} results`);
-    (matched as Array<{ similarity: number; content: string }>).forEach((r, i) => {
-      console.log(`     [${i + 1}] score=${r.similarity.toFixed(4)} | ${r.content.slice(0, 60).replace(/\n/g, " ")}...`);
-    });
+
+    const results = matched as Array<{ similarity: number; content: string }>;
+    if (results.length === 0) throw new Error("match_chunks returned 0 results — kiểm tra RLS và migration");
+
+    console.log(`  ✅ match_chunks returned ${results.length} results`);
+    results.forEach((r, i) =>
+      console.log(`     [${i + 1}] score=${r.similarity.toFixed(4)} | ${r.content.slice(0, 60).replace(/\n/g, " ")}...`)
+    );
 
     console.log("\n✅ All ingestion tests passed!\n");
   } catch (err) {
     console.error("\n❌ Test failed:", err);
   } finally {
-    // Cleanup: xóa test data
     if (documentId) {
       console.log("[cleanup] Removing test document...");
       await getServiceClient().from("documents").delete().eq("id", documentId);
