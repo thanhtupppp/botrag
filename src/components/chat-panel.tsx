@@ -1,14 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-
-type Citation = {
-  index: number;
-  documentId: string;
-  score: number;
-  preview: string;
-  metadata: Record<string, unknown>;
-};
+import { useMemo, useState } from "react";
+import type { ChunkDetailResponse, UICitation } from "@/app/chat/types";
+import { AnswerMarkdown } from "@/components/answer-markdown";
+import { ChatEmptyState } from "@/components/chat-empty-state";
+import { ChatMessageSkeleton } from "@/components/chat-message-skeleton";
+import { ChunkPreviewSheet } from "@/components/chunk-preview-sheet";
 
 type ChatState = "idle" | "thinking" | "streaming" | "error";
 
@@ -16,12 +13,12 @@ export function ChatPanel() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
-  const [citations, setCitations] = useState<Citation[]>([]);
+  const [citations, setCitations] = useState<UICitation[]>([]);
   const [state, setState] = useState<ChatState>("idle");
-  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(
-    null,
-  );
-  const answerRef = useRef<HTMLDivElement | null>(null);
+  const [selectedChunk, setSelectedChunk] =
+    useState<ChunkDetailResponse | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [activeCitation, setActiveCitation] = useState<number | null>(null);
 
   const canSend = question.trim().length > 0 && !loading;
 
@@ -30,12 +27,28 @@ export function ChatPanel() {
     [citations],
   );
 
+  async function loadChunkDetail(chunkId: string) {
+    const res = await fetch(`/api/chunks/${chunkId}`);
+    if (!res.ok) {
+      throw new Error("Không tải được citation detail");
+    }
+    return (await res.json()) as ChunkDetailResponse;
+  }
+
+  async function openCitation(citation: UICitation) {
+    const data = await loadChunkDetail(citation.chunkId);
+    setSelectedChunk(data);
+    setSheetOpen(true);
+  }
+
   async function sendQuestion() {
     setLoading(true);
     setState("thinking");
     setAnswer("");
     setCitations([]);
-    setSelectedCitation(null);
+    setSelectedChunk(null);
+    setActiveCitation(null);
+    setSheetOpen(false);
 
     try {
       const res = await fetch("/api/chat", {
@@ -46,7 +59,7 @@ export function ChatPanel() {
 
       const header = res.headers.get("x-rag-citations");
       if (header) {
-        setCitations(JSON.parse(header) as Citation[]);
+        setCitations(JSON.parse(header) as UICitation[]);
       }
 
       if (!res.ok || !res.body) {
@@ -65,10 +78,6 @@ export function ChatPanel() {
         if (result.value) {
           text += decoder.decode(result.value, { stream: true });
           setAnswer(text);
-          answerRef.current?.scrollIntoView({
-            behavior: "smooth",
-            block: "nearest",
-          });
         }
       }
 
@@ -107,19 +116,25 @@ export function ChatPanel() {
           <span className="text-sm text-white/50">state: {state}</span>
         </div>
 
-        <div
-          ref={answerRef}
-          className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4"
-        >
+        <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-white/50">Assistant</p>
             {loading ? (
               <span className="text-xs text-violet-300">streaming...</span>
             ) : null}
           </div>
-          <div className="mt-2 whitespace-pre-wrap text-white/85">
-            {answer || "Chưa có phản hồi."}
-          </div>
+
+          {state === "thinking" && !answer ? <ChatMessageSkeleton /> : null}
+
+          {answer || state === "error" ? (
+            <AnswerMarkdown
+              text={answer}
+              citations={citations}
+              onCitationHover={setActiveCitation}
+            />
+          ) : (
+            <ChatEmptyState onSuggest={(q) => setQuestion(q)} />
+          )}
         </div>
       </section>
 
@@ -133,11 +148,19 @@ export function ChatPanel() {
               <button
                 key={c.index}
                 type="button"
-                onClick={() => setSelectedCitation(c)}
-                className="block w-full rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-violet-400/40 hover:bg-white/5"
+                onMouseEnter={() => setActiveCitation(c.index)}
+                onMouseLeave={() => setActiveCitation(null)}
+                onClick={async () => {
+                  await openCitation(c);
+                }}
+                className={`block w-full rounded-2xl border p-4 text-left transition ${
+                  activeCitation === c.index
+                    ? "border-violet-400/40 bg-violet-500/10"
+                    : "border-white/10 bg-black/20 hover:border-violet-400/40 hover:bg-white/5"
+                }`}
               >
                 <p className="font-medium text-white">
-                  [#${c.index}] score {c.score}
+                  [#{c.index}] score {c.score}
                 </p>
                 <p className="mt-2 line-clamp-4">{c.preview}</p>
               </button>
@@ -147,19 +170,9 @@ export function ChatPanel() {
           )}
         </div>
 
-        {selectedCitation ? (
-          <div className="mt-6 rounded-2xl border border-violet-500/20 bg-violet-500/10 p-4">
-            <p className="text-sm font-medium text-violet-200">
-              Selected citation
-            </p>
-            <p className="mt-2 text-sm text-white/80">
-              Document: {selectedCitation.documentId}
-            </p>
-            <p className="mt-2 whitespace-pre-wrap text-sm text-white/70">
-              {selectedCitation.preview}
-            </p>
-          </div>
-        ) : null}
+        <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/50">
+          Click citation để xem nguồn chi tiết.
+        </div>
 
         {citationText ? (
           <pre className="mt-6 whitespace-pre-wrap text-xs text-white/45">
@@ -167,6 +180,12 @@ export function ChatPanel() {
           </pre>
         ) : null}
       </aside>
+
+      <ChunkPreviewSheet
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        chunk={selectedChunk}
+      />
     </div>
   );
 }

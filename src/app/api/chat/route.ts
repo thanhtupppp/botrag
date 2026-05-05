@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { streamText } from "ai";
 import { z } from "zod";
-import { createSupabaseServerClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  createServiceClient,
+} from "@/lib/supabase/server";
 import { retrieveTopKChunks } from "@/lib/rag/retrieve";
 import { buildRagPrompt } from "@/lib/rag/prompt";
 
@@ -15,7 +18,10 @@ export async function POST(req: NextRequest) {
   try {
     // 1. Auth
     const supabase = await createSupabaseServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -24,7 +30,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const parsed = RequestSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+      return NextResponse.json(
+        { error: parsed.error.flatten() },
+        { status: 400 },
+      );
     }
     const { question, sessionId } = parsed.data;
 
@@ -62,9 +71,10 @@ export async function POST(req: NextRequest) {
 
     const citations = chunks.map((c, i) => ({
       index: i + 1,
+      chunkId: c.id,
       documentId: c.documentId,
       score: Math.round(c.score * 100) / 100,
-      preview: c.content.slice(0, 120),
+      preview: c.content.slice(0, 160),
       metadata: c.metadata,
     }));
 
@@ -80,7 +90,9 @@ export async function POST(req: NextRequest) {
           { session_id: sessionId, role: "user", content: question },
           { session_id: sessionId, role: "assistant", content: text },
         ];
-        const { error } = await serviceClient.from("chat_messages").insert(msgs);
+        const { error } = await serviceClient
+          .from("chat_messages")
+          .insert(msgs);
         if (error) console.warn("[chat_messages] insert error:", error.message);
       },
     });
@@ -97,6 +109,9 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[chat] error:", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
   }
 }

@@ -1,5 +1,7 @@
 import { ChatPanel } from "@/components/chat-panel";
 import { Uploader } from "@/components/uploader";
+import { UploadEmptyState } from "@/components/upload-empty-state";
+import { UploadSkeleton } from "@/components/upload-skeleton";
 
 export default function ChatPage() {
   return (
@@ -10,8 +12,10 @@ export default function ChatPage() {
             Upload
           </p>
           <h2 className="mt-3 text-2xl font-semibold">Nạp tài liệu vào RAG</h2>
-          <div className="mt-6">
+          <div className="mt-6 space-y-4">
             <Uploader />
+            <UploadEmptyState />
+            <UploadSkeleton />
           </div>
         </section>
 
