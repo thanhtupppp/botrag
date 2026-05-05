@@ -7,12 +7,19 @@ import { ChatSessionsPanel } from "@/components/chat-sessions-panel";
 import { Uploader } from "@/components/uploader";
 import { UploadEmptyState } from "@/components/upload-empty-state";
 import { UploadSkeleton } from "@/components/upload-skeleton";
-import type { ChatSessionRow } from "@/lib/chat/sessions";
+
+type UiSession = {
+  id: string;
+  title: string | null;
+  createdAt: string;
+};
 
 export default function ChatPage() {
   const [chatState, setChatState] = useState<ChatState>("idle");
   const [activeCitationCount, setActiveCitationCount] = useState(0);
-  const [sessions, setSessions] = useState<ChatSessionRow[]>([]);
+  const [sessions, setSessions] = useState<UiSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [initialMessages, setInitialMessages] = useState<
     Array<{
@@ -24,23 +31,37 @@ export default function ChatPage() {
   >([]);
 
   async function loadSessions() {
-    const res = await fetch("/api/chat/sessions");
-    if (!res.ok) return;
-    const data = (await res.json()) as {
-      sessions: Array<{
-        id: string;
-        title: string | null;
-        createdAt: string;
-      }>;
-    };
-    setSessions(
-      data.sessions.map((session) => ({
-        id: session.id,
-        owner_id: "",
-        title: session.title,
-        created_at: session.createdAt,
-      })),
-    );
+    setSessionsLoading(true);
+    setSessionsError(null);
+
+    try {
+      const res = await fetch("/api/chat/sessions");
+      if (!res.ok) {
+        console.error("Failed to load sessions", res.status);
+        setSessionsError("Failed to load sessions");
+        return;
+      }
+
+      const data = (await res.json()) as {
+        sessions: Array<{
+          id: string;
+          title: string | null;
+          createdAt: string;
+        }>;
+      };
+      setSessions(
+        data.sessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          createdAt: session.createdAt,
+        })),
+      );
+    } catch (error) {
+      console.error("Failed to load sessions", error);
+      setSessionsError("Failed to load sessions");
+    } finally {
+      setSessionsLoading(false);
+    }
   }
 
   async function loadSession(sessionId: string) {
@@ -84,6 +105,8 @@ export default function ChatPage() {
         <div className="space-y-4">
           <ChatSessionsPanel
             sessions={sessions}
+            loading={sessionsLoading}
+            error={sessionsError}
             activeSessionId={activeSessionId}
             onSelectSession={loadSession}
             onRenameSession={renameSession}

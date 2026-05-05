@@ -1,10 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import type { ChatSessionRow } from "@/lib/chat/sessions";
+
+type UiSession = {
+  id: string;
+  title: string | null;
+  createdAt: string;
+};
 
 type Props = {
-  sessions: ChatSessionRow[];
+  sessions: UiSession[];
+  loading?: boolean;
+  error?: string | null;
   activeSessionId: string | null;
   onSelectSession: (sessionId: string) => void;
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
@@ -23,6 +30,8 @@ function formatRelativeTime(value: string) {
 
 export function ChatSessionsPanel({
   sessions,
+  loading,
+  error,
   activeSessionId,
   onSelectSession,
   onRenameSession,
@@ -31,7 +40,7 @@ export function ChatSessionsPanel({
   const [draftTitle, setDraftTitle] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  function startRename(session: ChatSessionRow) {
+  function startRename(session: UiSession) {
     setEditingId(session.id);
     setDraftTitle(session.title || "Untitled session");
   }
@@ -61,7 +70,17 @@ export function ChatSessionsPanel({
       </div>
 
       <div className="mt-3 space-y-2.5">
-        {sessions.length ? (
+        {loading ? (
+          <div className="space-y-2.5">
+            <div className="h-14 rounded-2xl border border-white/10 bg-black/20 animate-pulse" />
+            <div className="h-14 rounded-2xl border border-white/10 bg-black/20 animate-pulse" />
+            <div className="h-14 rounded-2xl border border-white/10 bg-black/20 animate-pulse" />
+          </div>
+        ) : error ? (
+          <p className="rounded-2xl border border-rose-400/20 bg-rose-500/10 px-3 py-3 text-sm text-rose-200">
+            {error}
+          </p>
+        ) : sessions.length ? (
           sessions.map((session) => {
             const isActive = activeSessionId === session.id;
             const isEditing = editingId === session.id;
@@ -127,7 +146,7 @@ export function ChatSessionsPanel({
                     </button>
 
                     <div className="flex items-center justify-between gap-2 text-[11px] text-white/40">
-                      <span>{formatRelativeTime(session.created_at)}</span>
+                      <span>{formatRelativeTime(session.createdAt)}</span>
                       <div className="flex items-center gap-3">
                         <span className="uppercase tracking-[0.18em]">
                           {isActive ? "Active" : "History"}
