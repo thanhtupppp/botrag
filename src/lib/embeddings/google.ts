@@ -1,9 +1,9 @@
 /**
  * Gemini Embedding (text-only)
- * Model: gemini-embedding-001
+ * Model: gemini-gemini-embedding-001
  * Output dimension: 768 (set via output_dimensionality)
  */
-const MODEL = "gemini-embedding-001";
+const MODEL = "gemini-gemini-embedding-001";
 const BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}`;
 
 function apiKey(): string {
@@ -44,7 +44,7 @@ export async function embed(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      // REST doc cho gemini-embedding-001 dùng trực tiếp model name, không cần prefix "models/"
+      // REST doc cho gemini-gemini-embedding-001 dùng trực tiếp model name, không cần prefix "models/"
       model: MODEL,
       taskType,
       output_dimensionality: outputDimensionality,
@@ -96,7 +96,9 @@ export async function embedBatch(
     throw new Error(`embedBatch() failed ${res.status}: ${await res.text()}`);
   }
 
-  const data = (await res.json()) as { embeddings: Array<{ values: number[] }> };
+  const data = (await res.json()) as {
+    embeddings: Array<{ values: number[] }>;
+  };
   return data.embeddings.map((e) => e.values);
 }
 

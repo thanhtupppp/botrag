@@ -162,7 +162,7 @@ async function main() {
         filter_owner_id: TEST_OWNER_ID,
       });
 
-      if (rpcErr) throw new Error(`RPC: ${rpcErr.message}`);
+      if (error) throw new Error(`RPC: ${error.message}`);
 
       const results = (
         matched as Array<{ similarity: number; content: string }>

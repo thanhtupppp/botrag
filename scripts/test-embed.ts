@@ -2,8 +2,8 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-// Gemini Embedding 1 = embedding-001, dimension 768
-const GEMINI_MODEL = "embedding-001";
+// Gemini Embedding 1 = gemini-embedding-001, dimension 768
+const GEMINI_MODEL = "gemini-embedding-001";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:embedContent`;
 const BATCH_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:batchEmbedContents`;
 const EXPECTED_DIM = 768;
@@ -87,6 +87,7 @@ async function testBatchEmbed(expectedDim: number) {
   // Summary
   console.log("\n[SUMMARY]");
   console.log(`  Model    : ${GEMINI_MODEL}`);
+  const dim = dims[0] ?? 0;
   console.log(`  Dimension: ${dim}`);
   console.log(
     `  Schema   : vector(${dim}) ${
