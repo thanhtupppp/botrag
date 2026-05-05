@@ -63,8 +63,9 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
 async function generateAnswer(prompt: string): Promise<string> {
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
 
+  // Dùng Gemini 2.5 Flash cho generate
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

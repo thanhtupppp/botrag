@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     // 5. Build prompt
     const prompt = buildRagPrompt(question, chunks);
 
-    // 6. Stream response via Gemini
+    // 6. Stream response via Gemini 2.5 Flash (text-out)
     const google = createGoogleGenerativeAI({
       apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY!,
     });
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     }));
 
     const result = streamText({
-      model: google("gemini-2.0-flash"),
+      model: google("gemini-2.5-flash"),
       prompt,
       maxTokens: 1024,
       temperature: 0.2,
