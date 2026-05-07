@@ -13,7 +13,11 @@ type UploadResponse = {
 
 const ACCEPTED_EXTENSIONS = [".docx", ".pdf", ".txt", ".md"] as const;
 
-export function Uploader() {
+type Props = {
+  disabled?: boolean;
+};
+
+export function Uploader({ disabled = false }: Props) {
   const [state, setState] = useState<UploadState>("idle");
   const [message, setMessage] = useState("");
   const [fileName, setFileName] = useState("");
@@ -96,7 +100,7 @@ export function Uploader() {
       <button
         type="submit"
         className="rounded-full bg-violet-600 px-5 py-3 text-sm font-medium transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={state === "uploading"}
+        disabled={state === "uploading" || disabled}
       >
         {state === "uploading" ? "Đang upload..." : "Upload & index"}
       </button>

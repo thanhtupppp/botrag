@@ -21,6 +21,7 @@ export default function ChatPage() {
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const [initialMessages, setInitialMessages] = useState<
     Array<{
       id: string;
@@ -36,6 +37,11 @@ export default function ChatPage() {
 
     try {
       const res = await fetch("/api/chat/sessions");
+      if (res.status === 401) {
+        setSessions([]);
+        setSessionsError(null);
+        return;
+      }
       if (!res.ok) {
         console.error("Failed to load sessions", res.status);
         setSessionsError("Failed to load sessions");
@@ -64,40 +70,63 @@ export default function ChatPage() {
     }
   }
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAuthReady(true);
+    }, 150);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) return;
+    void loadSessions();
+  }, [authReady]);
+
   async function loadSession(sessionId: string) {
-    const res = await fetch(`/api/chat/sessions/${sessionId}`);
-    if (!res.ok) return;
-    const data = (await res.json()) as {
-      session: { id: string; title: string | null; createdAt: string };
-      messages: Array<{
-        id: string;
-        role: "user" | "assistant";
-        content: string;
-        createdAt: string;
-      }>;
-    };
-    setActiveSessionId(data.session.id);
-    setInitialMessages(data.messages);
-  }
-
-  async function renameSession(sessionId: string, title: string) {
-    const res = await fetch(`/api/chat/sessions/${sessionId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    });
-
-    if (!res.ok) return;
-
-    await loadSessions();
-    if (activeSessionId === sessionId) {
-      await loadSession(sessionId);
+    try {
+      const res = await fetch(`/api/chat/sessions/${sessionId}`);
+      if (!res.ok) {
+        console.error("Failed to load session", res.status);
+        return;
+      }
+      const data = (await res.json()) as {
+        session: { id: string; title: string | null; createdAt: string };
+        messages: Array<{
+          id: string;
+          role: "user" | "assistant";
+          content: string;
+          createdAt: string;
+        }>;
+      };
+      setActiveSessionId(data.session.id);
+      setInitialMessages(data.messages);
+    } catch (error) {
+      console.error("Failed to load session", error);
     }
   }
 
-  useEffect(() => {
-    void loadSessions();
-  }, []);
+  async function renameSession(sessionId: string, title: string) {
+    try {
+      const res = await fetch(`/api/chat/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+
+      if (!res.ok) {
+        console.error("Failed to rename session", res.status);
+        return;
+      }
+
+      await loadSessions();
+      if (activeSessionId === sessionId) {
+        await loadSession(sessionId);
+      }
+    } catch (error) {
+      console.error("Failed to rename session", error);
+    }
+  }
 
   return (
     <main className="min-h-screen px-6 py-10 text-white">
@@ -120,7 +149,10 @@ export default function ChatPage() {
               Nạp tài liệu vào RAG
             </h2>
             <div className="mt-6 space-y-4">
-              <Uploader />
+              <Uploader disabled={!authReady} />
+              {!authReady ? (
+                <p className="text-sm text-white/50">Đang chờ xác thực...</p>
+              ) : null}
               <UploadEmptyState />
               <UploadSkeleton />
             </div>

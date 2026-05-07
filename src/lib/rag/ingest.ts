@@ -1,5 +1,5 @@
 import { chunkText } from "./chunk";
-import { googleEmbeddingProvider } from "@/lib/embeddings/google";
+import { embedBatch } from "@/lib/embeddings/google";
 import { createServiceClient } from "@/lib/supabase/server";
 import { logEvent, measureAsync } from "@/lib/observability";
 
@@ -88,7 +88,7 @@ export async function ingestText(
       const batchStartedAt = performance.now();
       const embeddings = await measureAsync(
         "rag.ingest.embed_batch",
-        () => googleEmbeddingProvider.embedBatch(batch.map((c) => c.content)),
+        () => embedBatch(batch.map((c) => c.content)),
         { documentId, ownerId, batchSize: batch.length },
       );
 

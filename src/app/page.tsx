@@ -1,13 +1,15 @@
-import Link from 'next/link';
-import { Uploader } from '@/components/uploader';
+import Link from "next/link";
+import { AuthBar } from "@/components/auth-bar";
+import { Uploader } from "@/components/uploader";
 
-const states = ['idle', 'thinking', 'streaming', 'error'] as const;
+const states = ["idle", "thinking", "streaming", "error"] as const;
 
 export default function HomePage() {
   return (
     <main className="min-h-screen px-6 py-10 text-white">
       <div className="mx-auto flex max-w-6xl flex-col gap-8">
         <section className="rounded-3xl border border-white/10 bg-white/5 p-8 backdrop-blur-xl">
+          <AuthBar />
           <p className="text-sm uppercase tracking-[0.3em] text-white/50">
             Production baseline
           </p>
@@ -44,8 +46,12 @@ export default function HomePage() {
 
         <section className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
-            <p className="text-sm uppercase tracking-[0.3em] text-white/50">Uploader</p>
-            <h2 className="mt-3 text-2xl font-semibold">Upload docx / pdf / txt / md</h2>
+            <p className="text-sm uppercase tracking-[0.3em] text-white/50">
+              Uploader
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold">
+              Upload docx / pdf / txt / md
+            </h2>
             <div className="mt-6">
               <Uploader />
             </div>
@@ -58,7 +64,9 @@ export default function HomePage() {
                 className="rounded-2xl border border-white/10 bg-white/5 p-5"
               >
                 <p className="text-sm text-white/50">3D state</p>
-                <p className="mt-2 text-2xl font-semibold capitalize">{state}</p>
+                <p className="mt-2 text-2xl font-semibold capitalize">
+                  {state}
+                </p>
               </div>
             ))}
           </div>

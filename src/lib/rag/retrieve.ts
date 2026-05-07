@@ -1,5 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
-import { googleEmbeddingProvider } from "@/lib/embeddings/google";
+import { embed } from "@/lib/embeddings/google";
 import { logEvent, measureAsync } from "@/lib/observability";
 import type { RetrievedChunk } from "./types";
 
@@ -25,7 +25,7 @@ export async function retrieveTopKChunks(
   const startedAt = performance.now();
   const embedding = await measureAsync(
     "rag.retrieval.embedding",
-    () => googleEmbeddingProvider.embed(query),
+    () => embed(query),
     { ownerId, k, minSimilarity },
   );
 
