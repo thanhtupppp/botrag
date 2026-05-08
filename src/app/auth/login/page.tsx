@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 export default function LoginPage() {
@@ -65,6 +66,13 @@ export default function LoginPage() {
         </form>
 
         {message ? <p className="text-sm text-white/70">{message}</p> : null}
+
+        <p className="text-sm text-white/50">
+          Chưa có tài khoản?{" "}
+          <Link className="text-violet-300 hover:text-violet-200" href="/">
+            Quay về trang chủ
+          </Link>
+        </p>
       </div>
     </main>
   );

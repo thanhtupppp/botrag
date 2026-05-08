@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChatPanel, type ChatState } from "@/components/chat-panel";
 import { Rag3DScene } from "@/components/rag-3d-scene";
 import { ChatSessionsPanel } from "@/components/chat-sessions-panel";
 import { Uploader } from "@/components/uploader";
 import { UploadEmptyState } from "@/components/upload-empty-state";
-import { UploadSkeleton } from "@/components/upload-skeleton";
+import { DocumentLibrary } from "@/components/document-library";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type UiSession = {
   id: string;
@@ -15,6 +17,7 @@ type UiSession = {
 };
 
 export default function ChatPage() {
+  const router = useRouter();
   const [chatState, setChatState] = useState<ChatState>("idle");
   const [activeCitationCount, setActiveCitationCount] = useState(0);
   const [sessions, setSessions] = useState<UiSession[]>([]);
@@ -22,6 +25,7 @@ export default function ChatPage() {
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [documentCount, setDocumentCount] = useState(0);
   const [initialMessages, setInitialMessages] = useState<
     Array<{
       id: string;
@@ -31,15 +35,27 @@ export default function ChatPage() {
     }>
   >([]);
 
+  async function ensureAuth() {
+    const supabase = createSupabaseBrowserClient();
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      router.replace("/auth/login");
+      return false;
+    }
+    return true;
+  }
+
   async function loadSessions() {
     setSessionsLoading(true);
     setSessionsError(null);
 
     try {
+      const ok = await ensureAuth();
+      if (!ok) return;
+
       const res = await fetch("/api/chat/sessions");
       if (res.status === 401) {
-        setSessions([]);
-        setSessionsError(null);
+        router.replace("/auth/login");
         return;
       }
       if (!res.ok) {
@@ -85,6 +101,9 @@ export default function ChatPage() {
 
   async function loadSession(sessionId: string) {
     try {
+      const ok = await ensureAuth();
+      if (!ok) return;
+
       const res = await fetch(`/api/chat/sessions/${sessionId}`);
       if (!res.ok) {
         console.error("Failed to load session", res.status);
@@ -108,6 +127,9 @@ export default function ChatPage() {
 
   async function renameSession(sessionId: string, title: string) {
     try {
+      const ok = await ensureAuth();
+      if (!ok) return;
+
       const res = await fetch(`/api/chat/sessions/${sessionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -154,9 +176,15 @@ export default function ChatPage() {
                 <p className="text-sm text-white/50">Đang chờ xác thực...</p>
               ) : null}
               <UploadEmptyState />
-              <UploadSkeleton />
             </div>
           </section>
+
+          <DocumentLibrary onDocumentsLoaded={setDocumentCount} />
+          {documentCount > 0 ? (
+            <p className="text-sm text-emerald-300">
+              Có {documentCount} tài liệu sẵn sàng để chat.
+            </p>
+          ) : null}
         </div>
 
         <ChatPanel

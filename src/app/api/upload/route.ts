@@ -85,6 +85,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      logEvent(
+        "api.upload.missing_env",
+        { route: "upload", key: "SUPABASE_SERVICE_ROLE_KEY" },
+        "error",
+      );
+      return NextResponse.json(
+        { error: "Server misconfigured: missing SUPABASE_SERVICE_ROLE_KEY" },
+        { status: 500 },
+      );
+    }
+    if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
+      logEvent(
+        "api.upload.missing_env",
+        { route: "upload", key: "GOOGLE_GENERATIVE_AI_API_KEY" },
+        "error",
+      );
+      return NextResponse.json(
+        { error: "Server misconfigured: missing GOOGLE_GENERATIVE_AI_API_KEY" },
+        { status: 500 },
+      );
+    }
+
     const buffer = await file.arrayBuffer();
     const text = await parseFileToText(buffer, mimeType);
 
@@ -129,16 +152,17 @@ export async function POST(req: NextRequest) {
       chunksInserted: result.chunksInserted,
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     logEvent(
       "api.upload.error",
       {
         route: "upload",
-        error: String(err instanceof Error ? err.message : err),
+        error: message,
       },
       "error",
     );
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: message || "Internal server error" },
       { status: 500 },
     );
   }

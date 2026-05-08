@@ -4,6 +4,55 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { logEvent, measureAsync } from "@/lib/observability";
 
 const BATCH_SIZE = 10;
+const MAX_EMBED_RETRIES = 3;
+const DEFAULT_EMBED_RETRY_MS = 1200;
+
+function getRetryDelayMs(error: unknown) {
+  if (!(error instanceof Error)) return null;
+  const match = error.message.match(/Please retry in ([0-9.]+)s/i);
+  if (match) {
+    return Math.ceil(Number(match[1]) * 1000);
+  }
+  return null;
+}
+
+async function embedBatchWithRetry(
+  texts: string[],
+  context: { documentId: string; ownerId: string; batchSize: number },
+) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_EMBED_RETRIES; attempt += 1) {
+    try {
+      return await measureAsync(
+        "rag.ingest.embed_batch",
+        () => embedBatch(texts),
+        { ...context, attempt },
+      );
+    } catch (error) {
+      lastError = error;
+      const retryDelayMs =
+        getRetryDelayMs(error) ?? DEFAULT_EMBED_RETRY_MS * attempt;
+      logEvent(
+        "rag.ingest.embed_batch.retry",
+        {
+          ...context,
+          attempt,
+          retryDelayMs,
+          error: String(error instanceof Error ? error.message : error),
+        },
+        "warn",
+      );
+
+      if (attempt === MAX_EMBED_RETRIES) break;
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Embedding failed after retries");
+}
 
 export interface IngestOptions {
   ownerId: string;
@@ -86,10 +135,13 @@ export async function ingestText(
     for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
       const batch = chunks.slice(i, i + BATCH_SIZE);
       const batchStartedAt = performance.now();
-      const embeddings = await measureAsync(
-        "rag.ingest.embed_batch",
-        () => embedBatch(batch.map((c) => c.content)),
-        { documentId, ownerId, batchSize: batch.length },
+      const embeddings = await embedBatchWithRetry(
+        batch.map((c) => c.content),
+        {
+          documentId,
+          ownerId,
+          batchSize: batch.length,
+        },
       );
 
       const rows = batch.map((chunk, idx) => ({

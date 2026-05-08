@@ -3,6 +3,11 @@ import { embed } from "@/lib/embeddings/google";
 import { logEvent, measureAsync } from "@/lib/observability";
 import type { RetrievedChunk } from "./types";
 
+function isEmbeddingQuotaError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("429") || message.includes("quota exceeded");
+}
+
 export interface RetrieveOptions {
   k?: number;
   ownerId: string;
@@ -23,11 +28,31 @@ export async function retrieveTopKChunks(
   const { k = 5, ownerId, minSimilarity = DEFAULT_MIN_SIMILARITY } = options;
 
   const startedAt = performance.now();
-  const embedding = await measureAsync(
-    "rag.retrieval.embedding",
-    () => embed(query),
-    { ownerId, k, minSimilarity },
-  );
+  let embedding: number[];
+  try {
+    embedding = await measureAsync(
+      "rag.retrieval.embedding",
+      () => embed(query),
+      { ownerId, k, minSimilarity },
+    );
+  } catch (error) {
+    if (isEmbeddingQuotaError(error)) {
+      logEvent(
+        "rag.retrieval.embedding_quota",
+        {
+          ownerId,
+          k,
+          minSimilarity,
+          error: String(error instanceof Error ? error.message : error),
+        },
+        "warn",
+      );
+      throw new Error(
+        "Embedding quota exceeded. Please try again later or switch embedding provider.",
+      );
+    }
+    throw error;
+  }
 
   const supabase = createServiceClient();
   const rpcStartedAt = performance.now();
