@@ -1,6 +1,7 @@
-version: "3.8"
+version: "3.9"
 
 services:
+  # ─── Existing ────────────────────────────────────────────────
   ingest-worker:
     build:
       context: ./worker
@@ -13,3 +14,64 @@ services:
       - NODE_ENV=production
       - PORT=3001
     restart: unless-stopped
+
+  # ─── Embedding Pipeline ──────────────────────────────────────
+  # HuggingFace Text Embeddings Inference — BGE-M3 (multilingual)
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    container_name: botrag_tei
+    ports:
+      - "8080:80"
+    volumes:
+      - tei_model_cache:/data
+    command: --model-id ${TEI_MODEL:-BAAI/bge-m3} --port 80
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ChromaDB — vector store
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: botrag_chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # Embedding API — FastAPI: chunking + embed + search
+  embedding-api:
+    build:
+      context: ./embedding
+      dockerfile: Dockerfile
+    container_name: botrag_embedding
+    ports:
+      - "8000:8000"
+    environment:
+      - TEI_URL=http://tei:80
+      - CHROMA_URL=http://chromadb:8000
+      - CHUNK_SIZE=${CHUNK_SIZE:-512}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-64}
+      - BATCH_SIZE=${BATCH_SIZE:-32}
+    depends_on:
+      tei:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  tei_model_cache:
+  chroma_data:
